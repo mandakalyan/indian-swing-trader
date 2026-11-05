@@ -1,77 +1,86 @@
 # Indian Market Reference Data
 
-## Scope of this module
+## Scope
 
-The reference-data foundation supports both NSE and BSE from the beginning.
-Initial research and screening may prioritise NSE, but exchange identity is part
-of every instrument record so that the same issuer listed on two exchanges is
-not accidentally treated as one exchange listing.
+Both NSE and BSE are supported at the instrument identity level. Initial screening
+may prioritize NSE. Exchange-specific identifiers and series are preserved.
 
-## Instrument identity
+Canonical listing identity is `(exchange, symbol, series)`. ISIN is retained as
+a cross-market identifier when supplied, not used as the only primary key.
+Exchange security codes/tokens remain provider or exchange identifiers.
 
-The canonical exchange-scoped identity is:
+## Official sources reviewed
 
-`(exchange, symbol, series)`
-
-ISIN is retained as a cross-market issuer/security identifier when supplied, but
-is not used as the sole primary key. An ISIN can be shared by listings on more
-than one exchange. BSE scrip codes and NSE tokens are retained as provider or
-exchange identifiers, not substituted for the canonical identity.
-
-The model preserves the original exchange series because series convey trading
-and settlement distinctions. The first research universe will explicitly select
-eligible equity series rather than assuming every listed instrument is an
-ordinary, liquid cash equity. ETFs, REITs, InvITs, debt, preference shares and
-warrants are separately classified.
-
-## Official reference sources
-
-- NSE securities master and market reports expose symbol, ISIN, security code,
-  series and corporate-action information:
-  https://www.nseindia.com/static/products-services/equity-market-data-reports-download
-- NSE securities available for trading, symbol changes and other reference
-  lists:
+- NSE Securities available for trading publishes separate equity, SME, ETF,
+  preference-share, warrant, debt, symbol-change and company-name-change files:
   https://www.nseindia.com/static/market-data/securities-available-for-trading
-- NSE series legend explains distinctions such as EQ and trade-for-trade series:
-  https://www.nseindia.com/static/market-data/legend-of-series
-- NSE exchange holidays and market timings:
-  https://www.nseindia.com/resources/exchange-communication-holidays
-- BSE equity segment master circular documents its scrip master and trading
-  session conventions:
+- NSE market reports describe its securities master as containing symbol, ISIN,
+  security code and series:
+  https://www.nseindia.com/static/products-services/equity-market-data-reports-download
+- NSE master-data specification documents the member-facing NEAT capital-market
+  `security.txt` format as gzip-compressed, pipe-delimited records with a header
+  followed by data records. It includes token, symbol, series and instrument type:
+  https://nsearchives.nseindia.com/web/sites/default/files/inline-files/NSE-Masters%20Data-v1.6.pdf
+- NSE's UDiFF documentation is separately versioned and provides CM trade and
+  bhavcopy formats. It is not interchangeable with the member security master:
+  https://www.nseindia.com/static/resources/forms-formats-members
+- NSE circular MSD67344 describes daily security-master dissemination and
+  distinguishes NSE-only and combined NSE/BSE-listed security files:
+  https://nsearchives.nseindia.com/content/circulars/MSD67344.pdf
+- BSE publishes a Standardised Security Master file specification and related
+  exchange circulars. The format is wide and versioned:
+  https://www.bseindia.com/markets/MarketInfo/DownloadAttach.aspx?attachedId=e99e2ca5-95d7-4173-83da-7774412bbb2d&id=20220531-44
+- BSE's 2026 circular changes the standardized scrip master, including the
+  Closing Auction Session indicator in field 24 and an ISO tag change in field 59,
+  effective 31 July 2026:
   https://www.bseindia.com/markets/MarketInfo/DownloadAttach.aspx?attachedId=8a7fec3a-95bc-4bd2-82de-76e2a84e2915&id=20250429-51
 
-Exchange reference files and calendars are external data, not constants to
-silently freeze in application code. The ingestion layer must record the source,
-retrieval timestamp, effective date, and file version where available.
+## Parser design implemented
 
-## Session handling
+The first ingestion increment provides header-driven CSV parsers:
 
-The common continuous equity session is 09:15–15:30 India time for NSE and BSE.
-This is not a claim that all sessions are identical: pre-open, special pre-open,
-periodic call auction, T+0, block-deal and special trading sessions differ.
-The initial calendar model represents the regular continuous session and allows
-exchange-specific special sessions to be injected.
+- `parse_nse_equity_csv` accepts public header-based NSE equity securities CSV
+  layouts with recognized symbol and series columns.
+- `parse_bse_equity_csv` accepts recognized BSE standardized equity scrip-master
+  identity columns.
+- Both parsers normalize header spelling/case, preserve exchange identity,
+  reject missing required columns, invalid identifiers and duplicate identities.
+- Unrecognized columns are ignored; they are not guessed or mapped by position.
+- An unknown instrument-type label maps to OTHER, never silently to EQUITY.
 
-Timezone is `Asia/Kolkata`; timestamps must be timezone-aware. Holiday lists
-must be sourced and refreshed from exchange publications. A weekday is not
-necessarily a trading day, and a weekend may have a special session.
+These parsers do not yet parse the member-facing pipe-delimited NEAT security.gz
+file, all versions of the NSE MII security file, or every BSE historical/binary
+format. Those need explicit format versions and real sample fixtures before
+implementation. Do not point a parser at an arbitrary exchange file and assume
+it is compatible.
 
-## Corporate actions
+## Operational requirements for the ingestion service
 
-Corporate actions are essential for reliable historical analysis. The NSE
-publishes corporate-action reports with ex-dates and record/book-closure dates.
-A future corporate-actions module must normalize splits, bonuses, dividends,
-rights, mergers and symbol/name changes. Until adjusted historical data is
-available and validated, backtests must flag affected price series rather than
-assume raw prices are continuous.
+A future downloader/ingestion job must:
+
+1. Use an approved official source URL and record the exact source URL.
+2. Record retrieval time, source file date, content hash, parser name and parser
+   version.
+3. Download to a temporary file, validate the complete file, then publish the
+   resulting snapshot atomically.
+4. Keep the last-known-good snapshot if a new file is malformed or incomplete.
+5. Report row counts, rejected rows, duplicate identities and unexpected schema
+   changes; fail rather than silently publishing a partial universe.
+6. Preserve source files or a reproducible checksum/reference for audit and
+   debugging.
+7. Avoid hard-coded undocumented endpoints and do not bypass exchange access
+   controls or terms of use.
 
 ## Deliberately deferred
 
-- Downloading/parsing official NSE and BSE security-master files.
-- Mapping NSE tokens and BSE scrip codes from provider-specific files.
-- Live holiday-file ingestion and update scheduling.
-- Full corporate-action event model and adjusted-price pipeline.
-- Liquidity eligibility rules and initial universe selection.
+- Live downloading and refresh scheduling.
+- Parsing NSE pipe-delimited NEAT security.gz and versioned MII/UDiFF files.
+- Full BSE field-by-field standardized master mapping and schema-version registry.
+- Mapping broker-specific instrument tokens.
+- Security lifecycle history (symbol changes, suspensions, delistings).
+- Corporate-action events and adjusted historical price series.
+- Database persistence and snapshot-diff reports.
 
-These are separate chunks so that source formats and licensing/usage conditions
-can be researched and tested before adapters are implemented.
+These are separate increments because exchange formats evolve. A parser should
+only be declared production-ready after it has been tested against a real,
+dated, official sample file for the exact format version it supports.
