@@ -1,0 +1,30 @@
+name: Temporary Ruff normalization
+on:
+  push:
+    branches: [hardening/ci-repair-workflow]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/ci-repair-workflow
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install ruff
+      - run: ruff check --fix .
+      - run: ruff format .
+      - name: Commit normalized formatting
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style: normalize CI repair implementation"
+          git push
