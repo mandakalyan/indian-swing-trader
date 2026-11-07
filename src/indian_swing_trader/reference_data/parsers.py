@@ -78,6 +78,19 @@ def _read_csv(source: str | TextIO) -> list[dict[str, str]]:
     return rows
 
 
+def _row_value(
+    row: Mapping[str, str], columns: Mapping[str, str], field: str
+) -> str | None:
+    column = columns.get(field)
+    if column is None:
+        return None
+    raw = row.get(column)
+    if raw is None:
+        return None
+    cleaned = raw.strip()
+    return cleaned or None
+
+
 def _parse_rows(
     source: str | TextIO,
     *,
@@ -91,22 +104,12 @@ def _parse_rows(
     seen: set[tuple[Exchange, str, str | None]] = set()
 
     for line_number, row in enumerate(rows, start=2):
-        def value(field: str) -> str | None:
-            column = columns.get(field)
-            if column is None:
-                return None
-            raw = row.get(column)
-            if raw is None:
-                return None
-            cleaned = raw.strip()
-            return cleaned or None
-
-        symbol = value("symbol")
-        series = value("series")
-        isin = value("isin")
-        code = value("security_code")
-        name = value("name")
-        type_value = value("instrument_type")
+        symbol = _row_value(row, columns, "symbol")
+        series = _row_value(row, columns, "series")
+        isin = _row_value(row, columns, "isin")
+        code = _row_value(row, columns, "security_code")
+        name = _row_value(row, columns, "name")
+        type_value = _row_value(row, columns, "instrument_type")
 
         if not symbol:
             raise ReferenceDataError(f"row {line_number}: missing symbol/security id")
