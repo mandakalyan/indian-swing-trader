@@ -21,8 +21,14 @@ API_ROOT = "https://api.github.com"
 OPENAI_URL = "https://api.openai.com/v1/responses"
 MAX_LOG_CHARS = 45_000
 MAX_PATCH_LINES = 300
+MAX_PATCH_BYTES = 40_000
+MAX_PATCH_FILES = 5
 ALLOWED_PREFIXES = ("src/", "tests/", "docs/")
 ALLOWED_FILES = {"pyproject.toml", "README.md"}
+PROTECTED_TEST_DELETIONS = re.compile(
+    r"^-\s*(?:assert\b|with\s+pytest\.raises\b|@pytest\.mark\.|def\s+test_)",
+    flags=re.MULTILINE,
+)
 
 
 def request_json(url: str, *, token: str, method: str = "GET", payload=None):
@@ -160,23 +166,53 @@ FAILED LOGS:
     raise RuntimeError("No structured repair proposal was returned.")
 
 
+def _safe_patch_path(path: str) -> bool:
+    """Reject absolute, traversal, platform-specific, and non-allowlisted paths."""
+    if not path or path.startswith("/") or "\\" in path or "\x00" in path:
+        return False
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return False
+    return path.startswith(ALLOWED_PREFIXES) or path in ALLOWED_FILES
+
+
 def validate_patch(patch: str) -> None:
+    """Fail closed on oversized, unsafe, or destructive model-generated diffs."""
     if not patch.strip():
         raise RuntimeError("The model returned an empty patch.")
+    if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
+        raise RuntimeError("Patch exceeds the 40 KB safety limit.")
     if len(patch.splitlines()) > MAX_PATCH_LINES:
         raise RuntimeError("Patch exceeds the 300-line safety limit.")
     if not patch.startswith("diff --git "):
         raise RuntimeError("Expected a git unified diff.")
-    paths = re.findall(r"^diff --git a/(.+?) b/(.+)$", patch, flags=re.MULTILINE)
-    if not paths:
+    forbidden = (
+        "GIT binary patch", "Binary files ", "new file mode ",
+        "deleted file mode ", "old mode ", "new mode ",
+        "rename from ", "rename to ", "copy from ", "copy to ",
+    )
+    if any(marker in patch for marker in forbidden):
+        raise RuntimeError("Binary files, creations, deletions, renames and mode changes are forbidden.")
+    headers = re.findall(r"^diff --git a/(.+?) b/(.+)$", patch, flags=re.MULTILINE)
+    if not headers:
         raise RuntimeError("Could not identify patch paths.")
-    for old_path, new_path in paths:
+    if len(headers) > MAX_PATCH_FILES:
+        raise RuntimeError(f"Patch touches more than {MAX_PATCH_FILES} files.")
+    seen: set[str] = set()
+    for old_path, new_path in headers:
         if old_path != new_path:
             raise RuntimeError("Renames are not allowed.")
-        if not (new_path.startswith(ALLOWED_PREFIXES) or new_path in ALLOWED_FILES):
-            raise RuntimeError(f"Patch path is outside the allowlist: {new_path}")
-    if re.search(r"^deleted file mode ", patch, flags=re.MULTILINE):
-        raise RuntimeError("File deletion is not allowed.")
+        if not _safe_patch_path(new_path):
+            raise RuntimeError(f"Patch path is unsafe or outside the allowlist: {new_path}")
+        if new_path in seen:
+            raise RuntimeError(f"Patch contains duplicate file sections: {new_path}")
+        seen.add(new_path)
+        if new_path.startswith("tests/") and PROTECTED_TEST_DELETIONS.search(patch):
+            raise RuntimeError("Patch removes a test definition, assertion, or pytest marker.")
+    if re.search(r"^index .* 120000$", patch, flags=re.MULTILINE) or re.search(
+        r"^index .* 160000$", patch, flags=re.MULTILINE
+    ):
+        raise RuntimeError("Symlink and submodule changes are forbidden.")
     proc = subprocess.run(
         ["git", "apply", "--check", "-"],
         input=patch,
@@ -192,6 +228,45 @@ def validate_tree() -> None:
     run(["ruff", "format", "--check", "."], check=True)
     run([sys.executable, "-m", "pytest"], check=True)
     run([sys.executable, "-m", "build"], check=True)
+
+
+def write_audit_record(repo: str, run_id: str, diagnosis: str, mode: str) -> str:
+    """Write a concise, secret-free audit record into the repair PR."""
+    path = f"docs/ci-repairs/run-{run_id}.md"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        raise RuntimeError(f"Refusing to overwrite existing audit record: {path}")
+    safe_diagnosis = re.sub(
+        r"(?i)(api[_-]?key|token|password)\\s*[:=]\\s*\\S+",
+        r"\\1=[REDACTED]",
+        diagnosis.replace("\\r", " ").strip(),
+    )
+    lines = [
+        f"# CI repair audit — run {run_id}",
+        "",
+        f"- Repository: {repo}",
+        f"- Workflow run: https://github.com/{repo}/actions/runs/{run_id}",
+        f"- Source revision: {os.environ.get('GITHUB_SHA', 'unknown')}",
+        f"- Repair mode: {mode}",
+        "- Target branch: development",
+        "- Merge policy: draft PR only; no automatic merge",
+        "- Validation: Ruff lint, Ruff format check, pytest, package build",
+        "",
+        "## Diagnosis",
+        "",
+        safe_diagnosis,
+        "",
+        "## Safety controls",
+        "",
+        "- Allowlisted paths with path-traversal checks",
+        "- Maximum 5 files, 300 lines, and 40 KB per model patch",
+        "- No binary files, file creation/deletion, renames, mode changes, symlinks, or submodules",
+        "- Test definitions, assertions, and pytest markers cannot be removed by a model patch",
+        "- Human review required before merge",
+    ]
+    with open(path, "w", encoding="utf-8") as audit_file:
+        audit_file.write("\\n".join(lines) + "\\n")
+    return path
 
 
 def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
@@ -246,6 +321,7 @@ def main() -> int:
     run(["ruff", "check", "--fix", "."], check=False)
     run(["ruff", "format", "."], check=False)
 
+    repair_mode = "deterministic Ruff autofix"
     try:
         validate_tree()
         diagnosis = "Deterministic Ruff fixes resolved the failure; all local checks passed."
@@ -256,6 +332,7 @@ def main() -> int:
             print("OPENAI_API_KEY is not configured; skipping model-based repair.")
             return 0
         logs = collect_failed_logs(repo, run_id, gh_token)
+        repair_mode = "OpenAI-assisted patch"
         proposal = ask_model(
             api_key,
             os.environ.get("OPENAI_MODEL") or "gpt-4.1-mini",
@@ -276,6 +353,8 @@ def main() -> int:
         print("No changes to propose; the original failure may be transient.")
         return 0
 
+    audit_path = write_audit_record(repo, run_id, diagnosis, repair_mode)
+    print(f"::notice title=CI repair audit::{audit_path}")
     url = open_repair_pr(repo, run_id, gh_token, diagnosis)
     print(f"::notice title=CI repair PR::{url}")
     return 0
