@@ -17,8 +17,35 @@ _ISIN_PATTERN = re.compile(r"^IN[A-Z0-9]{10}$")
 _SYMBOL_PATTERN = re.compile(r"^[A-Z0-9&._-]+$")
 
 
+class Exchange(StrEnum):
+    """Supported Indian equity exchanges."""
+
+    NSE = "NSE"
+    BSE = "BSE"
+
+
+class InstrumentType(StrEnum):
+    """Broad instrument classifications used by the research system."""
+
+    EQUITY = "EQUITY"
+    ETF = "ETF"
+    REIT = "REIT"
+    INVIT = "INVIT"
+    PREFERENCE_SHARE = "PREFERENCE_SHARE"
+    DEBT = "DEBT"
+    WARRANT = "WARRANT"
+    OTHER = "OTHER"
+
+
 @dataclass(frozen=True, slots=True)
 class Instrument:
+    """A listed instrument as identified on one exchange.
+
+    `symbol` and `series` are exchange-specific values. ISIN is optional because
+    some exchange/reference records may not supply one. `security_code` stores
+    the exchange's own numeric or textual identifier without coercing it.
+    """
+
     exchange: Exchange
     symbol: str
     series: str | None = None
@@ -69,4 +96,5 @@ class Instrument:
     @property
     def identity(self) -> tuple[Exchange, str, str | None]:
         """Return the exchange-scoped identity (exchange, symbol, series)."""
+
         return (self.exchange, self.symbol, self.series)
