@@ -85,6 +85,7 @@ def test_repair_agent_uses_only_source_tree(monkeypatch):
 
         class Result:
             returncode = 0
+
         return Result()
 
     monkeypatch.setattr("scripts.agent_team.run", fake_run)
