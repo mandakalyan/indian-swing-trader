@@ -167,7 +167,9 @@ class ReviewAgent:
                         "Repair touched a path outside the allowlist."),
                 names,
             )
-        structural_change = r"(?m)^(deleted file mode|new file mode|old mode|new mode|rename from|copy from) "
+        structural_change = (
+            r"(?m)^(deleted file mode|new file mode|old mode|new mode|"
+            r"rename from|copy from) "\n        )
         if re.search(structural_change, raw):
             return (
                 Finding("review", "blocked",
