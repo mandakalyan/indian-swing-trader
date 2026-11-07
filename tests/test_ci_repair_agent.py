@@ -1,4 +1,4 @@
-""""Unit tests for CI repair patch safety boundaries."""
+"""Unit tests for CI repair patch safety boundaries."""
 
 from types import SimpleNamespace
 
@@ -38,13 +38,13 @@ def test_safe_path_rejects_untrusted_locations(path):
 
 def valid_patch(path="src/indian_swing_trader/module.py"):
     return (
-        f"diff --git a/{path} b/{path}\\n"
-        "index 1111111..2222222 100644\\n"
-        f"--- a/{path}\\n"
-        f"+++ b/{path}\\n"
-        "@@ -1 +1 @@\\n"
-        "-value = 0\\n"
-        "+value = 1\\n"
+        f"diff --git a/{path} b/{path}\n"
+        "index 1111111..2222222 100644\n"
+        f"--- a/{path}\n"
+        f"+++ b/{path}\n"
+        "@@ -1 +1 @@\n"
+        "-value = 0\n"
+        "+value = 1\n"
     )
 
 
@@ -56,10 +56,10 @@ def test_validate_accepts_small_patch(monkeypatch):
 @pytest.mark.parametrize(
     "marker",
     [
-        "deleted file mode 100644\\n",
-        "new file mode 100644\\n",
-        "GIT binary patch\\n",
-        "rename from old.py\\n",
+        "deleted file mode 100644\n",
+        "new file mode 100644\n",
+        "GIT binary patch\n",
+        "rename from old.py\n",
     ],
 )
 def test_validate_rejects_destructive_patch_metadata(monkeypatch, marker):
