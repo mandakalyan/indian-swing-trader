@@ -100,9 +100,52 @@ def test_repair_agent_uses_only_source_tree(monkeypatch):
 def test_review_agent_rejects_out_of_scope_changes(monkeypatch):
     class Result:
         returncode = 0
-        stdout = ".github/workflows/ci.yml\n"
+        stdout = "M\\t.github/workflows/ci.yml\\n"
 
     monkeypatch.setattr("scripts.agent_team.run", lambda *args, **kwargs: Result())
     finding, paths = ReviewAgent().run()
     assert finding.status == "blocked"
     assert paths == [".github/workflows/ci.yml"]
+
+
+@pytest.mark.parametrize(
+    "status_line",
+    [
+        "A\\tsrc/indian_swing_trader/new_module.py",
+        "D\\tsrc/indian_swing_trader/old_module.py",
+        "R100\\tsrc/indian_swing_trader/old.py\\tsrc/indian_swing_trader/new.py",
+    ],
+)
+def test_review_agent_rejects_structural_changes(monkeypatch, status_line):
+    class Result:
+        returncode = 0
+        stdout = status_line
+
+    monkeypatch.setattr("scripts.agent_team.run", lambda *args, **kwargs: Result())
+    finding, _ = ReviewAgent().run()
+    assert finding.status == "blocked"
+    assert "Only modifications" in finding.detail
+
+
+def test_review_agent_rejects_binary_diff(monkeypatch):
+    class Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    calls = 0
+
+    def fake_run(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return Result("M\\tsrc/indian_swing_trader/module.py\\n")
+        if calls == 2:
+            return Result("Binary files differ")
+        return Result("")
+
+    monkeypatch.setattr("scripts.agent_team.run", fake_run)
+    finding, _ = ReviewAgent().run()
+    assert finding.status == "blocked"
+    assert "Binary" in finding.detail
