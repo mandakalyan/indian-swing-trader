@@ -59,7 +59,7 @@ def validate(patch):
  if chunks[0].strip():raise RuntimeError("Malformed diff preamble.")
  paths=[]
  for chunk in chunks[1:]:
-  m=re.match(r"^diff --git a/([^ \n]+) b/([^ \n]+)$",chunk)
+  m = re.match(r"^diff --git a/([^ \\n]+) b/([^ \\n]+)(?=\\n|$)", chunk)
   if not m:raise RuntimeError("Ambiguous/quoted diff path.")
   old,new=m.groups()
   if old!=new or not safe_path(new) or new in paths:raise RuntimeError(f"Unsafe or duplicate path: {new}")
