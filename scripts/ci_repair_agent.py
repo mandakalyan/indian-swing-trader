@@ -1,4 +1,4 @@
-"""Trusted workflow_run CI repair proposer. Never executes candidate PR code or merges."""
+"""Trusted pull_request_target CI repair proposer; never runs candidate code or merges."""
 
 from __future__ import annotations
 
