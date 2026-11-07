@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.request
 import zipfile
 from pathlib import PurePosixPath
@@ -113,7 +114,7 @@ def ask(key, model, repo, rid, logs):
         "Do not modify tests, workflows, scripts, permissions, secrets, or trading/risk logic. "
         "Only edit src/, docs/, pyproject.toml or README.md. Never weaken checks. "
         "If uncertain decline. No markdown fences. "
-        f"FAILED LOGS:\n{logs}",
+        f"FAILED LOGS:\n{logs}"
     )
     body = {
         "model": model,
