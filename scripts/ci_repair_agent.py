@@ -80,10 +80,10 @@ def collect_failed_logs(repo: str, run_id: str, token: str) -> str:
         except Exception as exc:  # noqa: BLE001 - preserve diagnosis for the agent
             logs = f"Could not download job logs: {type(exc).__name__}: {exc}"
         # GitHub normally masks secrets; apply an additional conservative scrub.
-        logs = re.sub(r"(?i)(bearer\\s+)[A-Za-z0-9._-]+", r"\\1[REDACTED]", logs)
-        logs = re.sub(r"(?i)(api[_-]?key|token|password)(\\s*[:=]\\s*)[^\\s]+", r"\\1\\2[REDACTED]", logs)
-        chunks.append(f"FAILED JOB: {job.get('name')} (id={job['id']})\\n{logs[-MAX_LOG_CHARS:]}")
-    return "\\n\\n".join(chunks) or "The run failed but no failed job logs were returned."
+        logs = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._-]+", r"\1[REDACTED]", logs)
+        logs = re.sub(r"(?i)(api[_-]?key|token|password)(\s*[:=]\s*)[^\s]+", r"\1\2[REDACTED]", logs)
+        chunks.append(f"FAILED JOB: {job.get('name')} (id={job['id']})\n{logs[-MAX_LOG_CHARS:]}")
+    return "\n\n".join(chunks) or "The run failed but no failed job logs were returned."
 
 
 def ask_model(api_key: str, model: str, repo: str, run_id: str, logs: str) -> dict:
@@ -201,9 +201,9 @@ def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
             "draft": True,
             "maintainer_can_modify": True,
             "body": (
-                "## AI-assisted CI repair proposal\\n\\n"
-                f"**Run:** https://github.com/{repo}/actions/runs/{run_id}\\n\\n"
-                f"**Diagnosis:**\\n{diagnosis}\\n\\n"
+                "## AI-assisted CI repair proposal\n\n"
+                f"**Run:** https://github.com/{repo}/actions/runs/{run_id}\n\n"
+                f"**Diagnosis:**\n{diagnosis}\n\n"
                 "The agent applied a minimal patch and ran Ruff, pytest, and "
                 "the package build before opening this draft PR. Human review "
                 "is required. This PR targets development and is never auto-merged."
