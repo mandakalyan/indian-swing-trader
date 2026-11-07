@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-
 _ISIN_PATTERN = re.compile(r"^IN[A-Z0-9]{10}$")
 _SYMBOL_PATTERN = re.compile(r"^[A-Z0-9&._-]+$")
 

@@ -84,9 +84,7 @@ def collect_failed_logs(repo: str, run_id: str, token: str) -> str:
     for job in jobs:
         if job.get("conclusion") != "failure":
             continue
-        log_url = (
-            f"{API_ROOT}/repos/{repo}/actions/jobs/{job['id']}/logs"
-        )
+        log_url = f"{API_ROOT}/repos/{repo}/actions/jobs/{job['id']}/logs"
         try:
             logs = download_job_logs(log_url, token)
         except Exception as exc:  # noqa: BLE001 - preserve diagnosis for the agent
@@ -236,6 +234,7 @@ def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
         },
     )
     return pr.get("html_url", "PR created; URL unavailable")
+
 
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
