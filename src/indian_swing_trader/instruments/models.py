@@ -7,14 +7,14 @@ and series are not assumed to be globally unique.
 
 from __future__ import annotations
 
-from re import compile as re_compile
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from re import compile as re_compile
 
 
 _ISIN_PATTERN = re_compile(r"^IN[A-Z0-9]{10}$")
-_SYMBOL_PATTERN = re.compile(r"^[A-Z0-9&._-]+$")
+_SYMBOL_PATTERN = re_compile(r"^[A-Z0-9&._-]+$")
 
 
 class Exchange(StrEnum):
