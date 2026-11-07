@@ -10,11 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from re import compile as re_compile
-
-
-_ISIN_PATTERN = re_compile(r"^IN[A-Z0-9]{10}$")
-_SYMBOL_PATTERN = re_compile(r"^[A-Z0-9&._-]+$")
 
 
 class Exchange(StrEnum):
@@ -59,7 +54,7 @@ class Instrument:
 
     def __post_init__(self) -> None:
         symbol = self.symbol.strip().upper()
-        if not symbol or not _SYMBOL_PATTERN.fullmatch(symbol):
+        if not symbol or not all(char.isascii() and (char.isalnum() or char in "&._-") for char in symbol):
             raise ValueError("symbol must contain only letters, digits, &, ., _, or -")
         object.__setattr__(self, "symbol", symbol)
 
@@ -71,7 +66,7 @@ class Instrument:
 
         if self.isin is not None:
             isin = self.isin.strip().upper()
-            if not _ISIN_PATTERN.fullmatch(isin):
+            if len(isin) != 12 or not isin.startswith("IN") or not all(char.isascii() and char.isalnum() for char in isin):
                 raise ValueError("ISIN must be 12 characters and start with IN")
             object.__setattr__(self, "isin", isin)
 
