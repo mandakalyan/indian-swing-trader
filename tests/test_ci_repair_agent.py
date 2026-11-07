@@ -74,6 +74,19 @@ def test_validate_rejects_unsafe_path(monkeypatch):
         agent.validate(valid_patch("../.github/workflows/ci.yml"))
 
 
+def test_validate_rejects_header_path_mismatch(monkeypatch):
+    monkeypatch.setattr(agent, "cmd", lambda *a, **k: SimpleNamespace(returncode=0))
+    patch = valid_patch().replace(
+        "--- a/src/indian_swing_trader/module.py",
+        "--- a/.github/workflows/ci.yml",
+    ).replace(
+        "+++ b/src/indian_swing_trader/module.py",
+        "+++ b/.github/workflows/ci.yml",
+    )
+    with pytest.raises(RuntimeError, match="headers do not match"):
+        agent.validate(patch)
+
+
 def test_validate_rejects_patch_that_does_not_apply(monkeypatch):
     monkeypatch.setattr(agent, "cmd", lambda *a, **k: SimpleNamespace(returncode=1))
     with pytest.raises(RuntimeError, match="does not apply"):
