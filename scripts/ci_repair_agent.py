@@ -78,8 +78,7 @@ def event():
 
 
 def redact_logs(raw):
-    """Conservatively remove common credentials and sensitive log lines before model use."""
-    # Drop PEM/private-key blocks entirely.
+    """Remove common credentials and fail closed on suspicious residuals."""
     raw = re.sub(
         r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
         "[REDACTED PRIVATE KEY]",
@@ -87,29 +86,29 @@ def redact_logs(raw):
         flags=re.S,
     )
     patterns = [
-        (r"(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]+", r"\\1[REDACTED]"),
-        (r"(?i)(authorization\\s*[:=]\\s*)[^\\r\\n]+", r"\\1[REDACTED]"),
-        (r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret)\\s*[:=]\\s*)[^\\s,;]+", r"\\1[REDACTED]"),
-        (r"(?i)(https?://)[^/@\\s:]+:[^/@\\s]+@", r"\\1[REDACTED]@"),
-        (r"\\bgh[pousr]_[A-Za-z0-9]{20,}\\b", "[REDACTED GITHUB TOKEN]"),
-        (r"\\bAKIA[0-9A-Z]{16}\\b", "[REDACTED AWS ACCESS KEY]"),
-        (r"\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b", "[REDACTED SLACK TOKEN]"),
-        (r"\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b", "[REDACTED JWT]"),
+        (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]"),
+        (r"(?i)(authorization\s*[:=]\s*)[^\r\n]+", r"\1[REDACTED]"),
+        (r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]"),
+        (r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@", r"\1[REDACTED]@"),
+        (r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", "[REDACTED GITHUB TOKEN]"),
+        (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED AWS ACCESS KEY]"),
+        (r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b", "[REDACTED SLACK TOKEN]"),
+        (r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", "[REDACTED JWT]"),
     ]
     for pattern, replacement in patterns:
         raw = re.sub(pattern, replacement, raw)
-    # Environment dumps and verbose request/response headers are not useful enough
-    # to justify forwarding potentially sensitive values.
     kept = []
     for line in raw.splitlines():
-        if re.search(r"(?i)(^|\\s)(env|environment variables|printenv|set)(\\s|$)", line):
+        if re.search(r"(?i)(^|\s)(env|environment variables|printenv|set)(\s|$)", line):
             continue
-        if re.search(r"(?i)(cookie\\s*[:=]|set-cookie\\s*:|x-api-key\\s*:)", line):
+        if re.search(r"(?i)(cookie\s*[:=]|set-cookie\s*:|x-api-key\s*:)", line):
             continue
         kept.append(line)
-    cleaned = "\\n".join(kept)
-    # Fail closed if a likely credential pattern remains after scrubbing.
-    if re.search(r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\\s+[A-Za-z0-9._~+/=-]{16,}|(?:password|client_secret|api_key)\\s*[:=]\\s*[^\\s]{8,})", cleaned):
+    cleaned = "\n".join(kept)
+    if re.search(
+        r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\s+[A-Za-z0-9._~+/=-]{16,}|(?:password|client_secret|api_key)\s*[:=]\s*[^\s]{8,})",
+        cleaned,
+    ):
         return ""
     return cleaned[:20000]
 
@@ -131,18 +130,19 @@ def logs_for(repo, rid, token):
             with urllib.request.urlopen(req, timeout=60) as r:
                 zdata = r.read()
             with zipfile.ZipFile(io.BytesIO(zdata)) as z:
-                s = "\n".join(
+                raw = "\n".join(
                     z.read(n).decode("utf-8", errors="replace")
                     for n in z.namelist()
                     if n.endswith(".txt")
                 )
         except Exception as e:
-            s = f"Log retrieval failed ({type(e).__name__})."
-        s = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._-]+", r"\1[REDACTED]", s)
-        s = re.sub(r"(?i)(api[_-]?key|token|password)(\s*[:=]\s*)[^\s]+", r"\1\2[REDACTED]", s)
-        out.append(f"FAILED JOB: {j.get('name')}\n{s[-30000:]}")
-    return "\n\n".join(out)
-
+            raw = f"Log retrieval failed ({type(e).__name__})."
+        cleaned = redact_logs(raw)
+        if not cleaned:
+            print("Sensitive-looking CI output detected; refusing to send logs to the model.")
+            return ""
+        out.append(f"FAILED JOB: {j.get('name')}\n{cleaned}")
+    return "\n\n".join(out)[:20000]
 
 def ask(key, model, repo, rid, logs):
     schema = {
