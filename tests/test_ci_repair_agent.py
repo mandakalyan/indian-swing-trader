@@ -95,3 +95,29 @@ def test_validate_rejects_patch_that_does_not_apply(monkeypatch):
     monkeypatch.setattr(agent, "cmd", lambda *a, **k: SimpleNamespace(returncode=1))
     with pytest.raises(RuntimeError, match="does not apply"):
         agent.validate(valid_patch())
+
+
+def test_redact_logs_masks_common_credentials():
+    cleaned = agent.redact_logs(
+        "Authorization: Bearer abcdefghijklmnop\n"
+        "token=ghp_abcdefghijklmnopqrstuvwxyz123456\n"
+        "https://user:password@example.com/path\n"
+        "AWS key AKIA1234567890ABCDEF\n"
+    )
+    assert "abcdefghijklmnop" not in cleaned
+    assert "ghp_abcdefghijklmnopqrstuvwxyz123456" not in cleaned
+    assert "user:password" not in cleaned
+    assert "AKIA1234567890ABCDEF" not in cleaned
+
+
+def test_redact_logs_fails_closed_on_unhandled_secret_pattern():
+    assert agent.redact_logs("password=verylongsecretvalue") == ""
+
+
+def test_redact_logs_removes_private_key_block():
+    cleaned = agent.redact_logs(
+        "before\n-----BEGIN RSA PRIVATE KEY-----\nsecret-material\n"
+        "-----END RSA PRIVATE KEY-----\nafter"
+    )
+    assert "secret-material" not in cleaned
+    assert "[REDACTED PRIVATE KEY]" in cleaned
