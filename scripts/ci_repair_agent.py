@@ -194,12 +194,35 @@ def validate_tree() -> None:
 def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
     branch = f"ci-repair/run-{run_id}"
     run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-    run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+    run(
+        [
+            "git",
+            "config",
+            "user.email",
+            "41898282+github-actions[bot]@users.noreply.github.com",
+        ],
+        check=True,
+    )
     run(["git", "checkout", "-b", branch], check=True)
     run(["git", "add", "-A"], check=True)
     run(["git", "commit", "-m", f"chore: repair CI run {run_id}"], check=True)
 
-    # Keep credentials out of the remote URL and command output. Supply the\n    # authorization header only to this git subprocess via its environment.\n    run(\n        ["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"],\n        check=True,\n    )\n    push_env = os.environ.copy()\n    basic_token = base64.b64encode(f"x-access-token:{token}".encode()).decode()\n    push_env["GIT_CONFIG_COUNT"] = "1"\n    push_env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"\n    push_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic_token}"\n    run(["git", "push", "--set-upstream", "origin", branch], check=True, env=push_env)
+    # Keep credentials out of the remote URL and command output.
+    # Supply the authorization header only to this git subprocess.
+    run(
+        ["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"],
+        check=True,
+    )
+    push_env = os.environ.copy()
+    basic_token = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    push_env["GIT_CONFIG_COUNT"] = "1"
+    push_env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+    push_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic_token}"
+    run(
+        ["git", "push", "--set-upstream", "origin", branch],
+        check=True,
+        env=push_env,
+    )
 
     pr = request_json(
         f"{API_ROOT}/repos/{repo}/pulls",
@@ -223,7 +246,6 @@ def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
     )
     return pr.get("html_url", "PR created; URL unavailable")
 
-
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["GITHUB_RUN_ID"]
@@ -245,7 +267,7 @@ def main() -> int:
         logs = collect_failed_logs(repo, run_id, gh_token)
         proposal = ask_model(
             api_key,
-            os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+            os.environ.get("OPENAI_MODEL") or "gpt-4.1-mini",
             repo,
             run_id,
             logs,
