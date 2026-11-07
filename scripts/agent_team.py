@@ -144,9 +144,7 @@ class TestAgent:
 
     def run(self, findings: list[dict]) -> Finding:
         failed = [
-            job.get("name", "unnamed job")
-            for job in findings
-            if job.get("conclusion") == "failure"
+            job.get("name", "unnamed job") for job in findings if job.get("conclusion") == "failure"
         ]
         return Finding(
             "testing",
@@ -278,6 +276,7 @@ def open_draft_pr(
     commit_message = f"chore: propose deterministic CI repair for PR #{pr_number}"
     run(["git", "commit", "-m", commit_message], check=True)
     import base64
+
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     run(
         ["git", "push", "--set-upstream", "origin", branch],
