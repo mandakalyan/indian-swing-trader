@@ -14,7 +14,6 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 API_ROOT = "https://api.github.com"
 OPENAI_URL = "https://api.openai.com/v1/responses"
