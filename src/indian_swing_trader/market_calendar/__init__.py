@@ -1,9 +1,9 @@
 """Exchange session and trading-calendar models."""
 
 from indian_swing_trader.market_calendar.models import (
+    IST,
     ExchangeCalendar,
     MarketSession,
-    IST,
     default_equity_session,
 )
 
