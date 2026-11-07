@@ -52,7 +52,11 @@ def redact_logs(text: str) -> str:
     patterns = [
         (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]"),
         (r"(?i)(authorization\s*[:=]\s*)[^\r\n]+", r"\1[REDACTED]"),
-        (\n            r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"\n            r"password|passwd|secret)\s*[:=]\s*)[^\s,;]+",\n            r"\1[REDACTED]",\n        ),
+        (
+            r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
+            r"password|passwd|secret)\s*[:=]\s*)[^\s,;]+",
+            r"\1[REDACTED]",
+        ),
         (r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@", r"\1[REDACTED]@"),
         (r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", "[REDACTED GITHUB TOKEN]"),
         (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED AWS KEY]"),
@@ -120,7 +124,10 @@ class RepairAgent:
         check = run(["ruff", "check", "--fix", "src"], check=False)
         fmt = run(["ruff", "format", "src"], check=False)
         if check.returncode not in (0, 1) or fmt.returncode:
-            return Finding(\n                "repair", "declined",\n                "Ruff could not safely complete deterministic fixes.",\n            )
+            return Finding(
+                "repair", "declined",
+                "Ruff could not safely complete deterministic fixes.",
+            )
         return Finding("repair", "completed", "Applied Ruff autofixes and formatting to src/ only.")
 
 
@@ -128,7 +135,11 @@ class TestAgent:
     """Uses CI's read-only results as test evidence; does not execute PR code here."""
 
     def run(self, findings: list[dict]) -> Finding:
-        failed = [\n            job.get("name", "unnamed job")\n            for job in findings\n            if job.get("conclusion") == "failure"\n        ]
+        failed = [
+            job.get("name", "unnamed job")
+            for job in findings
+            if job.get("conclusion") == "failure"
+        ]
         return Finding("testing", "awaiting_pr_ci",
                        "The repair PR must rerun CI; original failed jobs: " + ", ".join(failed))
 
@@ -145,11 +156,24 @@ class ReviewAgent:
         if not names:
             return Finding("review", "no_change", "No repair changes were produced."), []
         if len(names) > MAX_FILES or len(raw.encode()) > MAX_PATCH_BYTES:
-            return (\n                Finding("review", "blocked",\n                        "Repair exceeds file-count or patch-size limits."),\n                names,\n            )
+            return (
+                Finding("review", "blocked",
+                        "Repair exceeds file-count or patch-size limits."),
+                names,
+            )
         if any(not safe_path(name) for name in names):
-            return (\n                Finding("review", "blocked",\n                        "Repair touched a path outside the allowlist."),\n                names,\n            )
-        structural_change = r"(?m)^(deleted file mode|new file mode|old mode|new mode|rename from|copy from) "\n        if re.search(structural_change, raw):
-            return (\n                Finding("review", "blocked",\n                        "Repair includes a destructive or structural file change."),\n                names,\n            )
+            return (
+                Finding("review", "blocked",
+                        "Repair touched a path outside the allowlist."),
+                names,
+            )
+        structural_change = r"(?m)^(deleted file mode|new file mode|old mode|new mode|rename from|copy from) "
+        if re.search(structural_change, raw):
+            return (
+                Finding("review", "blocked",
+                        "Repair includes a destructive or structural file change."),
+                names,
+            )
         return Finding("review", "passed", f"Reviewed {len(names)} allowlisted file(s)."), names
 
 
@@ -171,14 +195,18 @@ def get_event() -> dict:
 
 
 def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str]:
-    jobs_url = f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"\n    jobs = github(jobs_url, token).get("jobs", [])
+    jobs_url = f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"
+    jobs = github(jobs_url, token).get("jobs", [])
     failed = [job for job in jobs if job.get("conclusion") == "failure"]
     chunks = []
     for job in failed:
         try:
             request = urllib.request.Request(
                 f"{API}/repos/{repo}/actions/jobs/{job['id']}/logs",
-                headers={\n                    "Authorization": f"Bearer {token}",\n                    "Accept": "application/vnd.github+json",\n                },
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                },
             )
             with urllib.request.urlopen(request, timeout=60) as response:
                 archive = response.read()
@@ -219,7 +247,8 @@ def open_draft_pr(repo: str, pr_number: int, base_branch: str, run_id: int,
     run(["git", "config", "user.name", "github-actions[bot]"], check=True)
     run(["git", "config", "user.email",
          "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
-    commit_message = f"chore: propose deterministic CI repair for PR #{pr_number}"\n    run(["git", "commit", "-m", commit_message], check=True)
+    commit_message = f"chore: propose deterministic CI repair for PR #{pr_number}"
+    run(["git", "commit", "-m", commit_message], check=True)
     import base64
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     run(["git", "push", "--set-upstream", "origin", branch], check=True,
@@ -291,7 +320,10 @@ def main() -> int:
     lint = run(["ruff", "check", "src"], check=False)
     fmt = run(["ruff", "format", "--check", "src"], check=False)
     if lint.returncode or fmt.returncode:
-        findings.append(\n            Finding("testing", "declined",\n                    "Ruff validation still fails; no PR created.")\n        )
+        findings.append(
+            Finding("testing", "declined",
+                    "Ruff validation still fails; no PR created.")
+        )
         write_summary(findings)
         return 0
 
