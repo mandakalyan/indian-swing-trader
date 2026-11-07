@@ -7,10 +7,10 @@ and series are not assumed to be globally unique.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+import re
 
 
 _ISIN_PATTERN = re.compile(r"^IN[A-Z0-9]{10}$")
