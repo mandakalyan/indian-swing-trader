@@ -1,16 +1,13 @@
 name: CI Repair Proposal
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [development]
 permissions:
   contents: read
-concurrency:
-  group: ci-repair-${{ github.event.workflow_run.id }}
-  cancel-in-progress: false
 jobs:
   propose-repair:
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -18,10 +15,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Check out trusted default-branch automation
+      - name: Check out trusted base-branch automation only
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: development
           persist-credentials: true
       - uses: actions/setup-python@v5
         with:
