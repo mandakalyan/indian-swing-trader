@@ -7,6 +7,7 @@ the resulting tree and opens a PR against development; it never merges.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -14,6 +15,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import zipfile
 
 API_ROOT = "https://api.github.com"
 OPENAI_URL = "https://api.openai.com/v1/responses"
@@ -41,13 +43,18 @@ def request_json(url: str, *, token: str, method: str = "GET", payload=None):
     return json.loads(raw) if raw else {}
 
 
-def download_text(url: str, token: str) -> str:
+def download_job_logs(url: str, token: str) -> str:
     request = urllib.request.Request(
         url,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read().decode("utf-8", errors="replace")
+        archive = response.read()
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        log_files = [name for name in bundle.namelist() if name.endswith(".txt")]
+        return "\n\n".join(
+            bundle.read(name).decode("utf-8", errors="replace") for name in log_files
+        )
 
 
 def run(command: list[str], *, check: bool = False) -> subprocess.CompletedProcess:
@@ -76,7 +83,7 @@ def collect_failed_logs(repo: str, run_id: str, token: str) -> str:
             f"{API_ROOT}/repos/{repo}/actions/jobs/{job['id']}/logs"
         )
         try:
-            logs = download_text(log_url, token)
+            logs = download_job_logs(log_url, token)
         except Exception as exc:  # noqa: BLE001 - preserve diagnosis for the agent
             logs = f"Could not download job logs: {type(exc).__name__}: {exc}"
         # GitHub normally masks secrets; apply an additional conservative scrub.
