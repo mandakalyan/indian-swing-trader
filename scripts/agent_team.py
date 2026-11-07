@@ -320,9 +320,16 @@ def open_draft_pr(
 
 def main() -> int:
     event = get_event()
-    pr = event.get("pull_request", {})
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
+    pr = event.get("pull_request", {})
+    if event.get("workflow_dispatch") or not pr:
+        inputs = event.get("inputs", {})
+        raw_number = str(inputs.get("pr_number", "")).strip()
+        if not raw_number.isdigit() or int(raw_number) < 1:
+            print("A valid workflow_dispatch pr_number is required.")
+            return 0
+        pr = github(f"{API}/repos/{repo}/pulls/{int(raw_number)}", token)
     if (
         pr.get("base", {}).get("ref") != "development"
         or pr.get("head", {}).get("repo", {}).get("full_name") != repo
@@ -382,6 +389,11 @@ def main() -> int:
     review, paths = ReviewAgent().run()
     findings.append(review)
     if review.status != "passed":
+        write_summary(findings)
+        return 0
+    path_review = SecurityAgent().run(logs, paths)
+    findings.append(Finding("security_path_review", path_review.status, path_review.detail))
+    if path_review.status != "passed":
         write_summary(findings)
         return 0
     findings.append(TestAgent().run(failed_jobs))
