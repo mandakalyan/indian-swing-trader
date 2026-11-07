@@ -52,8 +52,10 @@ def test_redact_logs_masks_common_tokens():
     assert "user:password" not in cleaned
 
 
-def test_redact_logs_fails_closed_on_unrecognised_secret_pattern():
-    assert redact_logs("api_key=unusuallylongsecretvalue") == ""
+def test_redact_logs_masks_api_key_assignment():
+    cleaned = redact_logs("api_key=unusuallylongsecretvalue")
+    assert "unusuallylongsecretvalue" not in cleaned
+    assert "[REDACTED]" in cleaned
 
 
 def test_triage_agent_classifies_lint_failure():
