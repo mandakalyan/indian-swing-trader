@@ -4,6 +4,7 @@ The roles are deterministic Python agents, not LLMs. They inspect CI evidence,
 apply only safe Ruff autofixes, review the resulting diff, and open draft PRs.
 No candidate code is executed in this privileged workflow.
 """
+
 from __future__ import annotations
 
 import json
@@ -143,7 +144,9 @@ class TestAgent:
 
     def run(self, findings: list[dict]) -> Finding:
         failed = [
-            job.get("name", "unnamed job") for job in findings if job.get("conclusion") == "failure"
+            job.get("name", "unnamed job")
+            for job in findings
+            if job.get("conclusion") == "failure"
         ]
         return Finding(
             "testing",
@@ -180,7 +183,9 @@ class ReviewAgent:
         if re.search(structural_change, raw):
             return (
                 Finding(
-                    "review", "blocked", "Repair includes a destructive or structural file change."
+                    "review",
+                    "blocked",
+                    "Repair includes a destructive or structural file change.",
                 ),
                 names,
             )
@@ -222,6 +227,7 @@ def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str
                 archive = response.read()
             import io
             import zipfile
+
             with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
                 raw = "\n".join(
                     bundle.read(name).decode("utf-8", errors="replace")
