@@ -32,11 +32,15 @@ def run(args: list[str], *, check: bool = False, env: dict[str, str] | None = No
 def github(url: str, token: str, method: str = "GET", payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": f"Bearer {token}",
-                 "X-GitHub-Api-Version": "2022-11-28",
-                 "Content-Type": "application/json"},
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+        },
     )
     with urllib.request.urlopen(req, timeout=60) as response:
         raw = response.read()
@@ -47,7 +51,9 @@ def redact_logs(text: str) -> str:
     """Redact common credentials; fail closed on suspicious leftovers."""
     text = re.sub(
         r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
-        "[REDACTED PRIVATE KEY]", text, flags=re.S,
+        "[REDACTED PRIVATE KEY]",
+        text,
+        flags=re.S,
     )
     patterns = [
         (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]"),
@@ -125,7 +131,8 @@ class RepairAgent:
         fmt = run(["ruff", "format", "src"], check=False)
         if check.returncode not in (0, 1) or fmt.returncode:
             return Finding(
-                "repair", "declined",
+                "repair",
+                "declined",
                 "Ruff could not safely complete deterministic fixes.",
             )
         return Finding("repair", "completed", "Applied Ruff autofixes and formatting to src/ only.")
@@ -136,12 +143,13 @@ class TestAgent:
 
     def run(self, findings: list[dict]) -> Finding:
         failed = [
-            job.get("name", "unnamed job")
-            for job in findings
-            if job.get("conclusion") == "failure"
+            job.get("name", "unnamed job") for job in findings if job.get("conclusion") == "failure"
         ]
-        return Finding("testing", "awaiting_pr_ci",
-                       "The repair PR must rerun CI; original failed jobs: " + ", ".join(failed))
+        return Finding(
+            "testing",
+            "awaiting_pr_ci",
+            "The repair PR must rerun CI; original failed jobs: " + ", ".join(failed),
+        )
 
 
 class ReviewAgent:
@@ -157,14 +165,12 @@ class ReviewAgent:
             return Finding("review", "no_change", "No repair changes were produced."), []
         if len(names) > MAX_FILES or len(raw.encode()) > MAX_PATCH_BYTES:
             return (
-                Finding("review", "blocked",
-                        "Repair exceeds file-count or patch-size limits."),
+                Finding("review", "blocked", "Repair exceeds file-count or patch-size limits."),
                 names,
             )
         if any(not safe_path(name) for name in names):
             return (
-                Finding("review", "blocked",
-                        "Repair touched a path outside the allowlist."),
+                Finding("review", "blocked", "Repair touched a path outside the allowlist."),
                 names,
             )
         structural_change = (
@@ -173,8 +179,9 @@ class ReviewAgent:
         )
         if re.search(structural_change, raw):
             return (
-                Finding("review", "blocked",
-                        "Repair includes a destructive or structural file change."),
+                Finding(
+                    "review", "blocked", "Repair includes a destructive or structural file change."
+                ),
                 names,
             )
         return Finding("review", "passed", f"Reviewed {len(names)} allowlisted file(s)."), names
@@ -216,8 +223,11 @@ def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str
             import io
             import zipfile
             with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-                raw = "\n".join(bundle.read(name).decode("utf-8", errors="replace")
-                                 for name in bundle.namelist() if name.endswith(".txt"))
+                raw = "\n".join(
+                    bundle.read(name).decode("utf-8", errors="replace")
+                    for name in bundle.namelist()
+                    if name.endswith(".txt")
+                )
         except Exception as exc:  # noqa: BLE001
             raw = f"Log retrieval failed ({type(exc).__name__})."
         safe = redact_logs(raw)
@@ -240,37 +250,60 @@ def write_summary(findings: list[Finding]) -> None:
     print(content)
 
 
-def open_draft_pr(repo: str, pr_number: int, base_branch: str, run_id: int,
-                  token: str, paths: list[str], findings: list[Finding]) -> str:
+def open_draft_pr(
+    repo: str,
+    pr_number: int,
+    base_branch: str,
+    run_id: int,
+    token: str,
+    paths: list[str],
+    findings: list[Finding],
+) -> str:
     branch = f"agent-team/repair-pr-{pr_number}-run-{run_id}"
     run(["git", "checkout", "-b", branch], check=True)
     run(["git", "add", "--", *paths], check=True)
     if not run(["git", "diff", "--cached", "--quiet"]).returncode:
         return ""
     run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-    run(["git", "config", "user.email",
-         "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+    run(
+        ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
+        check=True,
+    )
     commit_message = f"chore: propose deterministic CI repair for PR #{pr_number}"
     run(["git", "commit", "-m", commit_message], check=True)
     import base64
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-    run(["git", "push", "--set-upstream", "origin", branch], check=True,
-        env={**os.environ,
-             "GIT_CONFIG_COUNT": "1",
-             "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-             "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}"})
+    run(
+        ["git", "push", "--set-upstream", "origin", branch],
+        check=True,
+        env={
+            **os.environ,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+        },
+    )
     diagnosis = "\n".join(f"- **{f.role}:** {f.detail}" for f in findings)
-    result = github(f"{API}/repos/{repo}/pulls", token, "POST", {
-        "title": f"Agent-team repair proposal for PR #{pr_number}",
-        "head": branch, "base": base_branch, "draft": True,
-        "maintainer_can_modify": True,
-        "body": ("## Deterministic multi-agent repair proposal\n\n"
-                 f"Original PR: #{pr_number}\n\n"
-                 f"CI run: https://github.com/{repo}/actions/runs/{run_id}\n\n"
-                 f"### Agent report\n{diagnosis}\n\n"
-                 "No external model/API was used. CI must rerun on this draft PR. "
-                 "Human review is required; no auto-merge."),
-    })
+    result = github(
+        f"{API}/repos/{repo}/pulls",
+        token,
+        "POST",
+        {
+            "title": f"Agent-team repair proposal for PR #{pr_number}",
+            "head": branch,
+            "base": base_branch,
+            "draft": True,
+            "maintainer_can_modify": True,
+            "body": (
+                "## Deterministic multi-agent repair proposal\n\n"
+                f"Original PR: #{pr_number}\n\n"
+                f"CI run: https://github.com/{repo}/actions/runs/{run_id}\n\n"
+                f"### Agent report\n{diagnosis}\n\n"
+                "No external model/API was used. CI must rerun on this draft PR. "
+                "Human review is required; no auto-merge."
+            ),
+        },
+    )
     return result.get("html_url", "")
 
 
@@ -279,8 +312,10 @@ def main() -> int:
     pr = event.get("pull_request", {})
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
-    if (pr.get("base", {}).get("ref") != "development"
-            or pr.get("head", {}).get("repo", {}).get("full_name") != repo):
+    if (
+        pr.get("base", {}).get("ref") != "development"
+        or pr.get("head", {}).get("repo", {}).get("full_name") != repo
+    ):
         print("Skipping fork or non-development PR.")
         return 0
     number = int(pr["number"])
@@ -295,8 +330,12 @@ def main() -> int:
         runs = github(
             f"{API}/repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=30", token
         ).get("workflow_runs", [])
-        candidates = [item for item in runs if item.get("name") == "CI"
-                      and any(p.get("number") == number for p in item.get("pull_requests", []))]
+        candidates = [
+            item
+            for item in runs
+            if item.get("name") == "CI"
+            and any(p.get("number") == number for p in item.get("pull_requests", []))
+        ]
         if candidates and candidates[0].get("status") == "completed":
             if candidates[0].get("conclusion") == "failure":
                 failed_run = candidates[0]
@@ -324,8 +363,7 @@ def main() -> int:
     fmt = run(["ruff", "format", "--check", "src"], check=False)
     if lint.returncode or fmt.returncode:
         findings.append(
-            Finding("testing", "declined",
-                    "Ruff validation still fails; no PR created.")
+            Finding("testing", "declined", "Ruff validation still fails; no PR created.")
         )
         write_summary(findings)
         return 0
@@ -337,8 +375,13 @@ def main() -> int:
         return 0
     findings.append(TestAgent().run(failed_jobs))
     url = open_draft_pr(repo, number, branch, int(failed_run["id"]), token, paths, findings)
-    findings.append(Finding("orchestrator", "draft_pr_created" if url else "no_change",
-                             url or "No changes remained to propose."))
+    findings.append(
+        Finding(
+            "orchestrator",
+            "draft_pr_created" if url else "no_change",
+            url or "No changes remained to propose.",
+        )
+    )
     write_summary(findings)
     return 0
 
