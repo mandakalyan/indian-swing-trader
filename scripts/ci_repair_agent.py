@@ -175,8 +175,10 @@ def validate(patch):
         old, new = m.groups()
         if old != new or not safe_path(new) or new in paths:
             raise RuntimeError(f"Unsafe or duplicate path: {new}")
-        if not re.search(r"^--- a/", chunk, re.M) or not re.search(r"^\+\+\+ b/", chunk, re.M):
-            raise RuntimeError("Incomplete diff.")
+        old_header = re.findall(r"^--- (.+)$", chunk, re.M)
+        new_header = re.findall(r"^\+\+\+ (.+)$", chunk, re.M)
+        if old_header != [f"a/{old}"] or new_header != [f"b/{new}"]:
+            raise RuntimeError("Diff headers do not match the validated paths.")
         paths.append(new)
     if not paths or len(paths) > MAX_FILES:
         raise RuntimeError("Patch must touch 1-5 files.")
