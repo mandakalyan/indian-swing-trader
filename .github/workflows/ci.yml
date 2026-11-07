@@ -52,7 +52,7 @@ jobs:
             --cov-report=term-missing \
             --cov-report=xml
       - if: matrix.python-version == '3.11'
-        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-report
           path: coverage.xml
@@ -73,7 +73,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
       - run: python -m build
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-distributions
           path: dist/
