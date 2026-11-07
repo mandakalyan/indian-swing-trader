@@ -7,13 +7,13 @@ and series are not assumed to be globally unique.
 
 from __future__ import annotations
 
-import re
+from re import compile as re_compile
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
 
-_ISIN_PATTERN = re.compile(r"^IN[A-Z0-9]{10}$")
+_ISIN_PATTERN = re_compile(r"^IN[A-Z0-9]{10}$")
 _SYMBOL_PATTERN = re.compile(r"^[A-Z0-9&._-]+$")
 
 
