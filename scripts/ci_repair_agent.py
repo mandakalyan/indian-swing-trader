@@ -149,6 +149,7 @@ def logs_for(repo, rid, token):
         out.append(f"FAILED JOB: {j.get('name')}\n{cleaned}")
     return "\n\n".join(out)[:20000]
 
+
 def ask(key, model, repo, rid, logs):
     schema = {
         "type": "object",
