@@ -5,8 +5,6 @@ company's ISIN can be shared across exchange listings, while its exchange symbol
 and series are not assumed to be globally unique.
 """
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from decimal import Decimal
