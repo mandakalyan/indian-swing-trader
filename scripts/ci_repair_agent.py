@@ -7,7 +7,6 @@ the resulting tree and opens a PR against development; it never merges.
 
 from __future__ import annotations
 
-import base64
 import io
 import json
 import os
@@ -94,7 +93,11 @@ def collect_failed_logs(repo: str, run_id: str, token: str) -> str:
             logs = f"Could not download job logs: {type(exc).__name__}: {exc}"
         # GitHub normally masks secrets; apply an additional conservative scrub.
         logs = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._-]+", r"\1[REDACTED]", logs)
-        logs = re.sub(r"(?i)(api[_-]?key|token|password)(\s*[:=]\s*)[^\s]+", r"\1\2[REDACTED]", logs)
+        logs = re.sub(
+            r"(?i)(api[_-]?key|token|password)(\s*[:=]\s*)[^\s]+",
+            r"\1\2[REDACTED]",
+            logs,
+        )
         chunks.append(f"FAILED JOB: {job.get('name')} (id={job['id']})\n{logs[-MAX_LOG_CHARS:]}")
     return "\n\n".join(chunks) or "The run failed but no failed job logs were returned."
 
@@ -207,22 +210,10 @@ def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
     run(["git", "add", "-A"], check=True)
     run(["git", "commit", "-m", f"chore: repair CI run {run_id}"], check=True)
 
-    # Keep credentials out of the remote URL and command output.
-    # Supply the authorization header only to this git subprocess.
-    run(
-        ["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"],
-        check=True,
-    )
-    push_env = os.environ.copy()
-    basic_token = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-    push_env["GIT_CONFIG_COUNT"] = "1"
-    push_env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
-    push_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic_token}"
-    run(
-        ["git", "push", "--set-upstream", "origin", branch],
-        check=True,
-        env=push_env,
-    )
+    # actions/checkout persists the job-scoped GitHub token in local Git
+    # configuration. Reuse it; adding a second authorization header can
+    # produce an invalid request and HTTP 400.
+    run(["git", "push", "--set-upstream", "origin", branch], check=True)
 
     pr = request_json(
         f"{API_ROOT}/repos/{repo}/pulls",
