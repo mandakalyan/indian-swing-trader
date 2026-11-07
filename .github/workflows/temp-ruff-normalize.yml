@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install ruff
-      - run: ruff check --fix .
       - run: ruff format .
+      - run: ruff check --fix .
       - name: Commit normalized formatting
         run: |
           if git diff --quiet; then
