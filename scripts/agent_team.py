@@ -154,40 +154,46 @@ class TestAgent:
 
 
 class ReviewAgent:
-    """Reviews patch scope and rejects deletions, oversized or privileged changes."""
+    """Reviews patch scope and rejects structural, binary or oversized changes."""
 
     def run(self) -> tuple[Finding, list[str]]:
-        diff = run(["git", "diff", "--binary", "--no-ext-diff", "HEAD"])
-        if diff.returncode:
-            return Finding("review", "blocked", "Could not inspect resulting diff."), []
-        raw = diff.stdout
-        names = run(["git", "diff", "--name-only", "HEAD"]).stdout.splitlines()
-        if not names:
+        # Inspect metadata separately from the patch: a safe filename alone does
+        # not make an add/delete/rename or binary replacement safe.
+        status = run(["git", "diff", "--name-status", "--no-renames", "HEAD"])
+        if status.returncode:
+            return Finding("review", "blocked", "Could not inspect changed-file status."), []
+        entries = [line.split("\t", 1) for line in status.stdout.splitlines() if line]
+        if not entries:
             return Finding("review", "no_change", "No repair changes were produced."), []
-        if len(names) > MAX_FILES or len(raw.encode()) > MAX_PATCH_BYTES:
+        if any(len(item) != 2 or item[0] != "M" for item in entries):
             return (
-                Finding("review", "blocked", "Repair exceeds file-count or patch-size limits."),
+                Finding("review", "blocked", "Only modifications to existing files are permitted."),
+                [item[-1] for item in entries if item],
+            )
+        names = [item[1] for item in entries]
+        if len(names) > MAX_FILES or any(not safe_path(name) for name in names):
+            return (
+                Finding("review", "blocked", "Repair exceeds file-count or path allowlist limits."),
                 names,
             )
-        if any(not safe_path(name) for name in names):
+        if any(not name.startswith("src/") or not name.endswith(".py") for name in names):
             return (
-                Finding("review", "blocked", "Repair touched a path outside the allowlist."),
+                Finding("review", "blocked", "Deterministic Ruff repairs may modify only Python files under src/."),
                 names,
             )
-        structural_change = (
-            r"(?m)^(deleted file mode|new file mode|old mode|new mode|"
-            r"rename from|copy from) "
-        )
-        if re.search(structural_change, raw):
-            return (
-                Finding(
-                    "review",
-                    "blocked",
-                    "Repair includes a destructive or structural file change.",
-                ),
-                names,
-            )
-        return Finding("review", "passed", f"Reviewed {len(names)} allowlisted file(s)."), names
+
+        diff = run(["git", "diff", "--no-ext-diff", "--no-color", "HEAD"])
+        if diff.returncode:
+            return Finding("review", "blocked", "Could not inspect resulting diff."), names
+        raw = diff.stdout
+        if len(raw.encode()) > MAX_PATCH_BYTES:
+            return Finding("review", "blocked", "Repair exceeds patch-size limit."), names
+        if "Binary files " in raw or "GIT binary patch" in raw:
+            return Finding("review", "blocked", "Binary changes are not permitted."), names
+        whitespace = run(["git", "diff", "--check", "HEAD"])
+        if whitespace.returncode:
+            return Finding("review", "blocked", "Patch contains whitespace errors."), names
+        return Finding("review", "passed", f"Reviewed {len(names)} modified source file(s)."), names
 
 
 def safe_path(path: str) -> bool:
