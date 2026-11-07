@@ -162,7 +162,6 @@ def validate_patch(patch: str) -> None:
             raise RuntimeError(f"Patch path is outside the allowlist: {new_path}")
     if re.search(r"^deleted file mode ", patch, flags=re.MULTILINE):
         raise RuntimeError("File deletion is not allowed.")
-    run(["git", "apply", "--check", "-"], check=False)
     proc = subprocess.run(
         ["git", "apply", "--check", "-"],
         input=patch,
