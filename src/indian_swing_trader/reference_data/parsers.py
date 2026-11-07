@@ -78,9 +78,7 @@ def _read_csv(source: str | TextIO) -> list[dict[str, str]]:
     return rows
 
 
-def _row_value(
-    row: Mapping[str, str], columns: Mapping[str, str], field: str
-) -> str | None:
+def _row_value(row: Mapping[str, str], columns: Mapping[str, str], field: str) -> str | None:
     column = columns.get(field)
     if column is None:
         return None
