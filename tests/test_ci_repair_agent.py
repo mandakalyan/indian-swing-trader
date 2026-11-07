@@ -1,4 +1,5 @@
 """Unit tests for CI repair patch safety boundaries."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -6,25 +7,31 @@ import pytest
 import scripts.ci_repair_agent as agent
 
 
-@pytest.mark.parametrize("path", [
-    "src/indian_swing_trader/module.py",
-    "docs/architecture.md",
-    "pyproject.toml",
-    "README.md",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/indian_swing_trader/module.py",
+        "docs/architecture.md",
+        "pyproject.toml",
+        "README.md",
+    ],
+)
 def test_safe_path_accepts_allowlisted_files(path):
     assert agent.safe_path(path)
 
 
-@pytest.mark.parametrize("path", [
-    "../.github/workflows/ci.yml",
-    "src/../../.github/workflows/ci.yml",
-    "/tmp/evil.py",
-    r"src\\..\\secret.py",
-    "tests/test_module.py",
-    ".github/workflows/ci.yml",
-    "scripts/ci_repair_agent.py",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../.github/workflows/ci.yml",
+        "src/../../.github/workflows/ci.yml",
+        "/tmp/evil.py",
+        r"src\\..\\secret.py",
+        "tests/test_module.py",
+        ".github/workflows/ci.yml",
+        "scripts/ci_repair_agent.py",
+    ],
+)
 def test_safe_path_rejects_untrusted_locations(path):
     assert not agent.safe_path(path)
 
@@ -46,12 +53,15 @@ def test_validate_accepts_small_patch(monkeypatch):
     assert agent.validate(valid_patch()) == ["src/indian_swing_trader/module.py"]
 
 
-@pytest.mark.parametrize("marker", [
-    "deleted file mode 100644\n",
-    "new file mode 100644\n",
-    "GIT binary patch\n",
-    "rename from old.py\n",
-])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "deleted file mode 100644\n",
+        "new file mode 100644\n",
+        "GIT binary patch\n",
+        "rename from old.py\n",
+    ],
+)
 def test_validate_rejects_destructive_patch_metadata(monkeypatch, marker):
     monkeypatch.setattr(agent, "cmd", lambda *a, **k: SimpleNamespace(returncode=0))
     with pytest.raises(RuntimeError):

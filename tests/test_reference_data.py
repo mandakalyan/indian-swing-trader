@@ -45,10 +45,7 @@ def test_parse_bse_equity_csv_with_standardized_identity_headers() -> None:
 
 
 def test_parser_normalizes_header_case_and_spacing() -> None:
-    source = (
-        " trading symbol , Security Series , ISIN Code\n"
-        " INFY , EQ , INE009A01021\n"
-    )
+    source = " trading symbol , Security Series , ISIN Code\n INFY , EQ , INE009A01021\n"
 
     result = parse_nse_equity_csv(source)
 
@@ -80,21 +77,14 @@ def test_parser_rejects_invalid_isin_with_row_number() -> None:
 
 
 def test_parser_rejects_duplicate_exchange_identity() -> None:
-    source = (
-        "SYMBOL,SERIES,ISIN\n"
-        "INFY,EQ,INE009A01021\n"
-        "INFY,EQ,INE009A01021\n"
-    )
+    source = "SYMBOL,SERIES,ISIN\nINFY,EQ,INE009A01021\nINFY,EQ,INE009A01021\n"
 
     with pytest.raises(ReferenceDataError, match="duplicate instrument"):
         parse_nse_equity_csv(source)
 
 
 def test_unknown_instrument_type_is_not_assumed_to_be_equity() -> None:
-    source = (
-        "SYMBOL,SERIES,ISIN,INSTRUMENT TYPE\n"
-        "SAMPLE,EQ,INE123A01016,UNRECOGNIZED TYPE\n"
-    )
+    source = "SYMBOL,SERIES,ISIN,INSTRUMENT TYPE\nSAMPLE,EQ,INE123A01016,UNRECOGNIZED TYPE\n"
 
     result = parse_nse_equity_csv(source)
 

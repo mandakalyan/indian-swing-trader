@@ -49,9 +49,7 @@ class ExchangeCalendar:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "holidays", MappingProxyType(dict(self.holidays)))
-        object.__setattr__(
-            self, "special_sessions", MappingProxyType(dict(self.special_sessions))
-        )
+        object.__setattr__(self, "special_sessions", MappingProxyType(dict(self.special_sessions)))
 
     def is_trading_day(self, day: date) -> bool:
         """Return whether a date has a configured trading session."""
