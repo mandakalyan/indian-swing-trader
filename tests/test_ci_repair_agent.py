@@ -110,8 +110,10 @@ def test_redact_logs_masks_common_credentials():
     assert "AKIA1234567890ABCDEF" not in cleaned
 
 
-def test_redact_logs_fails_closed_on_unhandled_secret_pattern():
-    assert agent.redact_logs("password=verylongsecretvalue") == ""
+def test_redact_logs_masks_password_assignment():
+    cleaned = agent.redact_logs("password=verylongsecretvalue")
+    assert "verylongsecretvalue" not in cleaned
+    assert "[REDACTED]" in cleaned
 
 
 def test_redact_logs_removes_private_key_block():
