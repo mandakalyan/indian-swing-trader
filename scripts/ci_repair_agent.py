@@ -88,7 +88,11 @@ def redact_logs(raw):
     patterns = [
         (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]"),
         (r"(?i)(authorization\s*[:=]\s*)[^\r\n]+", r"\1[REDACTED]"),
-        (r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*)[^\s,;]+", r"\1[REDACTED]"),
+        (
+            r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
+            r"password|passwd|secret)\s*[:=]\s*)[^\s,;]+",
+            r"\1[REDACTED]",
+        ),
         (r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@", r"\1[REDACTED]@"),
         (r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", "[REDACTED GITHUB TOKEN]"),
         (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED AWS ACCESS KEY]"),
@@ -106,7 +110,8 @@ def redact_logs(raw):
         kept.append(line)
     cleaned = "\n".join(kept)
     if re.search(
-        r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\s+[A-Za-z0-9._~+/=-]{16,}|(?:password|client_secret|api_key)\s*[:=]\s*[^\s]{8,})",
+        r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\s+[A-Za-z0-9._~+/=-]{16,}|"
+        r"(?:password|client_secret|api_key)\s*[:=]\s*(?!\[REDACTED\])[^\s]{8,})",
         cleaned,
     ):
         return ""
