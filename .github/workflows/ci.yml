@@ -35,6 +35,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ruff
 
+      - name: Compile automation scripts
+        run: python -m compileall -q scripts
+
       - name: Check lint
         run: ruff check .
 
