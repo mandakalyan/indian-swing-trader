@@ -7,6 +7,7 @@ the resulting tree and opens a PR against development; it never merges.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -57,9 +58,14 @@ def download_job_logs(url: str, token: str) -> str:
         )
 
 
-def run(command: list[str], *, check: bool = False) -> subprocess.CompletedProcess:
+def run(
+    command: list[str],
+    *,
+    check: bool = False,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     print(f"::group::{' '.join(command)}")
-    result = subprocess.run(command, text=True, capture_output=True)
+    result = subprocess.run(command, text=True, capture_output=True, env=env)
     if result.stdout:
         print(result.stdout[-12_000:])
     if result.stderr:
@@ -193,9 +199,7 @@ def open_repair_pr(repo: str, run_id: str, token: str, diagnosis: str) -> str:
     run(["git", "add", "-A"], check=True)
     run(["git", "commit", "-m", f"chore: repair CI run {run_id}"], check=True)
 
-    remote = f"https://x-access-token:{token}@github.com/{repo}.git"
-    run(["git", "remote", "set-url", "origin", remote], check=True)
-    run(["git", "push", "--set-upstream", "origin", branch], check=True)
+    # Keep credentials out of the remote URL and command output. Supply the\n    # authorization header only to this git subprocess via its environment.\n    run(\n        ["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"],\n        check=True,\n    )\n    push_env = os.environ.copy()\n    basic_token = base64.b64encode(f"x-access-token:{token}".encode()).decode()\n    push_env["GIT_CONFIG_COUNT"] = "1"\n    push_env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"\n    push_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic_token}"\n    run(["git", "push", "--set-upstream", "origin", branch], check=True, env=push_env)
 
     pr = request_json(
         f"{API_ROOT}/repos/{repo}/pulls",
