@@ -82,6 +82,7 @@ def test_repair_agent_uses_only_source_tree(monkeypatch):
 
     def fake_run(command, check=False, env=None):
         calls.append(command)
+
         class Result:
             returncode = 0
         return Result()
@@ -99,6 +100,7 @@ def test_review_agent_rejects_out_of_scope_changes(monkeypatch):
     class Result:
         returncode = 0
         stdout = ".github/workflows/ci.yml\n"
+
     monkeypatch.setattr("scripts.agent_team.run", lambda *args, **kwargs: Result())
     finding, paths = ReviewAgent().run()
     assert finding.status == "blocked"
