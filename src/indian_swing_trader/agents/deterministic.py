@@ -60,7 +60,11 @@ class DataQualityAgent:
                 "blocked",
                 findings=("Market data evidence was not supplied; analysis was not run.",),
             )
-        if not isinstance(evidence, dict) or not evidence.get("source") or not evidence.get("as_of"):
+        if (
+            not isinstance(evidence, dict)
+            or not evidence.get("source")
+            or not evidence.get("as_of")
+        ):
             return AgentResult(
                 self.name,
                 task.task_id,
