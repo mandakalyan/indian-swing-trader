@@ -169,7 +169,8 @@ class ReviewAgent:
             )
         structural_change = (
             r"(?m)^(deleted file mode|new file mode|old mode|new mode|"
-            r"rename from|copy from) "\n        )
+            r"rename from|copy from) "
+        )
         if re.search(structural_change, raw):
             return (
                 Finding("review", "blocked",
