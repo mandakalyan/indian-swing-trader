@@ -272,7 +272,7 @@ def main():
                 f"Repair proposal for PR #{pr_number}.\\n\\n"
                 f"Run: https://github.com/{repo}/actions/runs/{rid}\\n\\n"
                 f"Diagnosis:\\n{diagnosis}\\n\\n"
-                f"Files: {", ".join(paths)}\\n\\n"
+                f"Files: {', '.join(paths)}\\n\\n"
                 "AI-generated draft. CI and human review required; no auto-merge."
             ),
         },
