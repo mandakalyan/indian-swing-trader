@@ -1,8 +1,12 @@
 """Bounded task dispatcher with explicit agent-to-agent handoffs."""
+
 from __future__ import annotations
+
 from collections import deque
+
 from indian_swing_trader.agents.contracts import AgentResult, AgentTask
 from indian_swing_trader.agents.registry import AgentRegistry
+
 
 class AgentOrchestrator:
     """Dispatch tasks without giving agents shared mutable state or credentials.
@@ -11,6 +15,7 @@ class AgentOrchestrator:
     budget prevents accidental loops. Execution is sequential in this first
     runtime; the contract permits a future queue/worker implementation.
     """
+
     def __init__(self, registry: AgentRegistry, *, max_tasks: int = 20) -> None:
         if max_tasks < 1:
             raise ValueError("max_tasks must be positive")
