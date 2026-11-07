@@ -36,9 +36,10 @@ to this workflow.
 
 ## Security boundaries
 
-- The privileged workflow uses `pull_request_target`, but checks out only the
-  trusted `development` branch containing the automation.
-- Fork PRs are skipped.
+- The repair workflow is manually dispatched from the trusted `development`
+  branch with a pull-request number; it does not run automatically for PR events.
+- The job fetches PR metadata from GitHub and accepts only same-repository PRs
+  targeting `development`; fork and other-base PRs are skipped.
 - The candidate commit is fetched as Git data. Candidate code is not run.
 - Ruff is used as a parser/formatter; pytest, build hooks, package imports and
   candidate scripts are not executed in the privileged job.
