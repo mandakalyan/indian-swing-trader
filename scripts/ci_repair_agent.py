@@ -51,9 +51,19 @@ def api(url, token, method="GET", payload=None):
     return json.loads(raw) if raw else {}
 
 
-def cmd(args, check=False, input_text=None):
-    print("::group::" + " ".join("<remote>" if x.startswith("https://") else x for x in args))
-    p = subprocess.run(args, input=input_text, text=True, capture_output=True, timeout=120)
+def cmd(args, check=False, input_text=None, extra_env=None):
+    # Never print credential-bearing arguments or environment values.
+    safe_args = [
+        "<redacted>" if "AUTHORIZATION" in x.upper() or x.startswith("https://") else x
+        for x in args
+    ]
+    print("::group::" + " ".join(safe_args))
+    child_env = os.environ.copy()
+    if extra_env:
+        child_env.update(extra_env)
+    p = subprocess.run(
+        args, input=input_text, text=True, capture_output=True, timeout=120, env=child_env
+    )
     print((p.stdout or "")[-8000:])
     print((p.stderr or "")[-8000:])
     print("::endgroup::")
@@ -65,6 +75,43 @@ def cmd(args, check=False, input_text=None):
 def event():
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
         return json.load(f)
+
+
+def redact_logs(raw):
+    """Conservatively remove common credentials and sensitive log lines before model use."""
+    # Drop PEM/private-key blocks entirely.
+    raw = re.sub(
+        r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
+        "[REDACTED PRIVATE KEY]",
+        raw,
+        flags=re.S,
+    )
+    patterns = [
+        (r"(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]+", r"\\1[REDACTED]"),
+        (r"(?i)(authorization\\s*[:=]\\s*)[^\\r\\n]+", r"\\1[REDACTED]"),
+        (r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret)\\s*[:=]\\s*)[^\\s,;]+", r"\\1[REDACTED]"),
+        (r"(?i)(https?://)[^/@\\s:]+:[^/@\\s]+@", r"\\1[REDACTED]@"),
+        (r"\\bgh[pousr]_[A-Za-z0-9]{20,}\\b", "[REDACTED GITHUB TOKEN]"),
+        (r"\\bAKIA[0-9A-Z]{16}\\b", "[REDACTED AWS ACCESS KEY]"),
+        (r"\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b", "[REDACTED SLACK TOKEN]"),
+        (r"\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b", "[REDACTED JWT]"),
+    ]
+    for pattern, replacement in patterns:
+        raw = re.sub(pattern, replacement, raw)
+    # Environment dumps and verbose request/response headers are not useful enough
+    # to justify forwarding potentially sensitive values.
+    kept = []
+    for line in raw.splitlines():
+        if re.search(r"(?i)(^|\\s)(env|environment variables|printenv|set)(\\s|$)", line):
+            continue
+        if re.search(r"(?i)(cookie\\s*[:=]|set-cookie\\s*:|x-api-key\\s*:)", line):
+            continue
+        kept.append(line)
+    cleaned = "\\n".join(kept)
+    # Fail closed if a likely credential pattern remains after scrubbing.
+    if re.search(r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\\s+[A-Za-z0-9._~+/=-]{16,}|(?:password|client_secret|api_key)\\s*[:=]\\s*[^\\s]{8,})", cleaned):
+        return ""
+    return cleaned[:20000]
 
 
 def logs_for(repo, rid, token):
@@ -255,7 +302,20 @@ def main():
         check=True,
     )
     cmd(["git", "commit", "-m", f"chore: propose CI repair for PR #{pr_number}"], check=True)
-    cmd(["git", "push", "--set-upstream", "origin", branch], check=True)
+    # Supply the short-lived job token to Git only for this push. It is not
+    # persisted in .git/config and is never printed in the command log.
+    import base64
+
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    cmd(
+        ["git", "push", "--set-upstream", "origin", branch],
+        check=True,
+        extra_env={
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+        },
+    )
     opened = api(f"{API}/repos/{repo}/pulls?state=open&per_page=100", token)
     for p in opened:
         if p.get("head", {}).get("ref") == branch:
