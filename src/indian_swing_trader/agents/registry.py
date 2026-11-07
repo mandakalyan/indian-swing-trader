@@ -1,9 +1,13 @@
 """Agent registration and task routing."""
+
 from __future__ import annotations
+
 from indian_swing_trader.agents.contracts import Agent
+
 
 class AgentRegistry:
     """Maps task kinds to one agent and rejects ambiguous registrations."""
+
     def __init__(self) -> None:
         self._agents: dict[str, Agent] = {}
         self._routes: dict[str, str] = {}
