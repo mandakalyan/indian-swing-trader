@@ -298,7 +298,9 @@ def download_job_log_archive(url: str, token: str) -> bytes:
         redirected = urllib.parse.urljoin(url, location)
         parsed = urllib.parse.urlsplit(redirected)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("GitHub job-log redirect must use HTTPS without URL credentials.") from None
+            raise ValueError(
+                "GitHub job-log redirect must use HTTPS without URL credentials."
+            ) from None
         # The signed download URL is a separate capability. Never forward GH_TOKEN.
         with urllib.request.urlopen(redirected, timeout=60) as response:
             return response.read()
