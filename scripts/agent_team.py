@@ -274,6 +274,7 @@ def valid_target_pr(
 
 def download_job_log_archive(url: str, token: str) -> bytes:
     """Download job logs without forwarding the API token to a signed redirect URL."""
+
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
