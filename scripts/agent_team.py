@@ -166,7 +166,7 @@ class ReviewAgent:
         status = run(["git", "diff", "--name-status", "--no-renames", "HEAD"])
         if status.returncode:
             return Finding("review", "blocked", "Could not inspect changed-file status."), []
-        entries = [line.split("\t", 1) for line in status.stdout.splitlines() if line]
+        entries = [line.split("\\t", 1) for line in status.stdout.splitlines() if line]
         if not entries:
             return Finding("review", "no_change", "No repair changes were produced."), []
         if any(len(item) != 2 or item[0] != "M" for item in entries):
@@ -174,23 +174,6 @@ class ReviewAgent:
                 Finding("review", "blocked", "Only modifications to existing files are permitted."),
                 [item[-1] for item in entries if item],
             )
-
-        # A status of M also covers executable-bit and regular-file/symlink
-        # transitions. Reject any Git mode change before accepting the patch.
-        modes = run(["git", "diff", "--raw", "--no-abbrev", "--no-renames", "HEAD"])
-        if modes.returncode:
-            return Finding("review", "blocked", "Could not inspect file modes."), []
-        for line in modes.stdout.splitlines():
-            metadata = line.split("\t", 1)[0].split()
-            if (
-                len(metadata) < 2
-                or not metadata[0].startswith(":")
-                or metadata[0][1:] != metadata[1]
-            ):
-                return (
-                    Finding("review", "blocked", "File type or mode changes are not permitted."),
-                    [],
-                )
 
         names = [item[1] for item in entries]
         if len(names) > MAX_FILES or any(not safe_path(name) for name in names):
@@ -207,6 +190,23 @@ class ReviewAgent:
                 ),
                 names,
             )
+
+        # A status of M also covers executable-bit and regular-file/symlink
+        # transitions. Reject any Git mode change before accepting the patch.
+        modes = run(["git", "diff", "--raw", "--no-abbrev", "--no-renames", "HEAD"])
+        if modes.returncode:
+            return Finding("review", "blocked", "Could not inspect file modes."), []
+        for line in modes.stdout.splitlines():
+            metadata = line.split("\\t", 1)[0].split()
+            if (
+                len(metadata) < 2
+                or not metadata[0].startswith(":")
+                or metadata[0][1:] != metadata[1]
+            ):
+                return (
+                    Finding("review", "blocked", "File type or mode changes are not permitted."),
+                    [],
+                )
 
         diff = run(["git", "diff", "--no-ext-diff", "--no-color", "HEAD"])
         if diff.returncode:
@@ -485,7 +485,11 @@ def main() -> int:
         Finding(
             "orchestrator",
             "draft_pr_created" if url else "not_created",
-            url or "No draft PR created; no changes remained or the source PR changed during final revalidation.",
+            url
+            or (
+                "No draft PR created; no changes remained or the source PR changed "
+                "during final revalidation."
+            ),
         )
     )
     write_summary(findings)
