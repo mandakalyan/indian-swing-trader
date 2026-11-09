@@ -1,5 +1,7 @@
 """Tests for the zero-cost CI repair agent team."""
 
+from pathlib import Path
+
 import pytest
 
 from scripts.agent_team import (
@@ -9,6 +11,7 @@ from scripts.agent_team import (
     TriageAgent,
     redact_logs,
     safe_path,
+    valid_target_pr,
 )
 
 
@@ -149,3 +152,81 @@ def test_review_agent_rejects_binary_diff(monkeypatch):
     finding, _ = ReviewAgent().run()
     assert finding.status == "blocked"
     assert "Binary" in finding.detail
+
+
+REPOSITORY = "mandakalyan/indian-swing-trader"
+TARGET_SHA = "a" * 40
+
+
+def make_target_pr(
+    *,
+    state="open",
+    base_ref="development",
+    base_repo=REPOSITORY,
+    head_repo=REPOSITORY,
+    head_sha=TARGET_SHA,
+    head_branch="feature/ci-test",
+):
+    return {
+        "number": 7,
+        "state": state,
+        "base": {"ref": base_ref, "repo": {"full_name": base_repo}},
+        "head": {
+            "ref": head_branch,
+            "sha": head_sha,
+            "repo": {"full_name": head_repo},
+        },
+    }
+
+
+def test_valid_target_pr_accepts_open_same_repo_development_pr():
+    assert valid_target_pr(
+        make_target_pr(),
+        REPOSITORY,
+        number=7,
+        sha=TARGET_SHA,
+        branch="feature/ci-test",
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"state": "closed"},
+        {"base_ref": "main"},
+        {"base_repo": "another/repository"},
+        {"head_repo": "fork/indian-swing-trader"},
+        {"head_sha": "b" * 40},
+        {"head_branch": "renamed/branch"},
+    ],
+)
+def test_valid_target_pr_rejects_stale_or_untrusted_pr(changes):
+    assert not valid_target_pr(
+        make_target_pr(**changes),
+        REPOSITORY,
+        number=7,
+        sha=TARGET_SHA,
+        branch="feature/ci-test",
+    )
+
+
+def test_valid_target_pr_rejects_malformed_head_sha():
+    assert not valid_target_pr(
+        make_target_pr(head_sha="not-a-commit"),
+        REPOSITORY,
+    )
+
+
+def test_privileged_workflow_uses_trusted_pull_request_target_boundary():
+    workflow = Path(".github/workflows/ci-repair.yml").read_text(encoding="utf-8")
+    assert "pull_request_target:" in workflow
+    assert "types: [opened, synchronize, reopened]" in workflow
+    assert "branches: [development]" in workflow
+    assert "ref: development" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "actions: read" in workflow
+    assert "contents: write" in workflow
+    assert "pull-requests: write" in workflow
+    assert workflow.count("uses: actions/checkout@") == 1
+    assert "ref: ${{ github.event.pull_request.head.sha }}" not in workflow
+    assert "secrets." not in workflow
