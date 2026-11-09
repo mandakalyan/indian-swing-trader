@@ -201,6 +201,8 @@ def test_valid_target_pr_accepts_open_same_repo_development_pr():
         {"head_repo": "fork/indian-swing-trader"},
         {"head_sha": "b" * 40},
         {"head_branch": "renamed/branch"},
+        {"head_branch": "main"},
+        {"head_branch": "development"},
     ],
 )
 def test_valid_target_pr_rejects_stale_or_untrusted_pr(changes):
