@@ -1,6 +1,7 @@
 """Tests for the zero-cost CI repair agent team."""
 
 import json
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from scripts.agent_team import (
     SecurityAgent,
     TriageAgent,
     collect_failure,
+    download_job_log_archive,
     main,
     open_draft_pr,
     redact_logs,
@@ -95,6 +97,51 @@ def test_run_does_not_forward_github_tokens_to_subprocesses(monkeypatch):
     assert captured["env"]["SAFE_SETTING"] == "preserved"
 
 
+def test_download_job_logs_does_not_forward_token_to_redirect(monkeypatch):
+    target = "https://logs.example.test/job-logs.zip"
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            assert request.get_header("Authorization") == "Bearer test-token"
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": target},
+                None,
+            )
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"archive"
+
+    downloaded = []
+
+    def download_without_auth(url, timeout):
+        downloaded.append(url)
+        return Response()
+
+    monkeypatch.setattr(
+        "scripts.agent_team.urllib.request.build_opener",
+        lambda *_args: FakeOpener(),
+    )
+    monkeypatch.setattr("scripts.agent_team.urllib.request.urlopen", download_without_auth)
+
+    archive = download_job_log_archive(
+        "https://api.github.com/repos/example/repo/actions/jobs/1/logs",
+        "test-token",
+    )
+
+    assert archive == b"archive"
+    assert downloaded == [target]
+
+
 def test_collect_failure_fails_closed_when_log_download_fails(monkeypatch):
     monkeypatch.setattr(
         "scripts.agent_team.github",
@@ -106,7 +153,7 @@ def test_collect_failure_fails_closed_when_log_download_fails(monkeypatch):
     def deny_log_download(*args, **kwargs):
         raise OSError("log access denied")
 
-    monkeypatch.setattr("scripts.agent_team.urllib.request.urlopen", deny_log_download)
+    monkeypatch.setattr("scripts.agent_team.download_job_log_archive", deny_log_download)
     failed, logs = collect_failure(REPOSITORY, 456, "test-token")
 
     assert len(failed) == 1
@@ -195,14 +242,14 @@ def test_review_agent_rejects_binary_diff(monkeypatch):
         nonlocal calls
         calls += 1
         if calls == 1:
-            return Result("M\\tsrc/indian_swing_trader/module.py\\n")
+            return Result("M\tsrc/indian_swing_trader/module.py\n")
         if calls == 2:
             return Result(
                 ":100644 100644 "
                 + "0" * 40
                 + " "
                 + "1" * 40
-                + " M\\tsrc/indian_swing_trader/module.py\\n"
+                + " M\tsrc/indian_swing_trader/module.py\n"
             )
         if calls == 3:
             return Result("Binary files differ")
@@ -227,14 +274,14 @@ def test_review_agent_rejects_file_mode_changes(monkeypatch):
         nonlocal calls
         calls += 1
         if calls == 1:
-            return Result("M\\tsrc/indian_swing_trader/module.py\\n")
+            return Result("M\tsrc/indian_swing_trader/module.py\n")
         if calls == 2:
             return Result(
                 ":100644 100755 "
                 + "0" * 40
                 + " "
                 + "1" * 40
-                + " M\\tsrc/indian_swing_trader/module.py\\n"
+                + " M\tsrc/indian_swing_trader/module.py\n"
             )
         return Result("")
 
@@ -375,7 +422,7 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monke
                 + "0" * 40
                 + " "
                 + "1" * 40
-                + " M\\tsrc/indian_swing_trader/core.py\\n"
+                + " M\tsrc/indian_swing_trader/core.py\n"
             )
         elif args == ["git", "diff", "--no-ext-diff", "--no-color", "HEAD"]:
             stdout = (
@@ -442,9 +489,7 @@ def test_open_draft_pr_revalidates_source_head_after_push(monkeypatch):
     )
 
     assert url == ""
-    assert api_calls == [
-        (f"https://api.github.com/repos/{REPOSITORY}/pulls/7", "GET")
-    ]
+    assert api_calls == [(f"https://api.github.com/repos/{REPOSITORY}/pulls/7", "GET")]
     assert [
         "git",
         "push",
