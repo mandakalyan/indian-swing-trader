@@ -217,6 +217,36 @@ def get_event() -> dict:
         return json.load(stream)
 
 
+def valid_target_pr(
+    pr: dict,
+    repo: str,
+    *,
+    number: int | None = None,
+    sha: str | None = None,
+    branch: str | None = None,
+) -> bool:
+    """Accept only an open, same-repository PR targeting development."""
+    head = pr.get("head") or {}
+    base = pr.get("base") or {}
+    head_repo = head.get("repo") or {}
+    base_repo = base.get("repo") or {}
+    current_sha = head.get("sha", "")
+    current_branch = head.get("ref", "")
+    return (
+        pr.get("state") == "open"
+        and isinstance(pr.get("number"), int)
+        and pr["number"] > 0
+        and (number is None or pr["number"] == number)
+        and base.get("ref") == "development"
+        and base_repo.get("full_name") == repo
+        and head_repo.get("full_name") == repo
+        and bool(re.fullmatch(r"[0-9a-f]{40}", current_sha))
+        and bool(current_branch)
+        and (sha is None or current_sha == sha)
+        and (branch is None or current_branch == branch)
+    )
+
+
 def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str]:
     jobs_url = f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"
     jobs = github(jobs_url, token).get("jobs", [])
@@ -334,18 +364,12 @@ def main() -> int:
             print("A valid workflow_dispatch pr_number is required.")
             return 0
         pr = github(f"{API}/repos/{repo}/pulls/{int(raw_number)}", token)
-    if (
-        pr.get("base", {}).get("ref") != "development"
-        or pr.get("head", {}).get("repo", {}).get("full_name") != repo
-    ):
-        print("Skipping fork or non-development PR.")
+    if not valid_target_pr(pr, repo):
+        print("Skipping closed, fork, or non-development PR.")
         return 0
-    number = int(pr["number"])
-    sha = pr.get("head", {}).get("sha", "")
-    branch = pr.get("head", {}).get("ref", "")
-    if not re.fullmatch(r"[0-9a-f]{40}", sha) or not branch:
-        print("Invalid PR head metadata.")
-        return 0
+    number = pr["number"]
+    sha = pr["head"]["sha"]
+    branch = pr["head"]["ref"]
 
     failed_run = None
     for _ in range(40):
@@ -366,6 +390,11 @@ def main() -> int:
             break
         time.sleep(15)
     if not failed_run:
+        return 0
+
+    current_pr = github(f"{API}/repos/{repo}/pulls/{number}", token)
+    if not valid_target_pr(current_pr, repo, number=number, sha=sha, branch=branch):
+        print("PR was closed, retargeted, or updated while CI was running; no repair proposed.")
         return 0
 
     failed_jobs, logs = collect_failure(repo, int(failed_run["id"]), token)
@@ -401,6 +430,17 @@ def main() -> int:
         write_summary(findings)
         return 0
     findings.append(TestAgent().run(failed_jobs))
+    latest_pr = github(f"{API}/repos/{repo}/pulls/{number}", token)
+    if not valid_target_pr(latest_pr, repo, number=number, sha=sha, branch=branch):
+        findings.append(
+            Finding(
+                "orchestrator",
+                "stale_pr",
+                "PR changed or closed during repair; no draft PR was created.",
+            )
+        )
+        write_summary(findings)
+        return 0
     url = open_draft_pr(repo, number, branch, int(failed_run["id"]), token, paths, findings)
     findings.append(
         Finding(
