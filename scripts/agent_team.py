@@ -12,6 +12,8 @@ import os
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -166,7 +168,7 @@ class ReviewAgent:
         status = run(["git", "diff", "--name-status", "--no-renames", "HEAD"])
         if status.returncode:
             return Finding("review", "blocked", "Could not inspect changed-file status."), []
-        entries = [line.split("\\t", 1) for line in status.stdout.splitlines() if line]
+        entries = [line.split("\t", 1) for line in status.stdout.splitlines() if line]
         if not entries:
             return Finding("review", "no_change", "No repair changes were produced."), []
         if any(len(item) != 2 or item[0] != "M" for item in entries):
@@ -197,7 +199,7 @@ class ReviewAgent:
         if modes.returncode:
             return Finding("review", "blocked", "Could not inspect file modes."), []
         for line in modes.stdout.splitlines():
-            metadata = line.split("\\t", 1)[0].split()
+            metadata = line.split("\t", 1)[0].split()
             if (
                 len(metadata) < 2
                 or not metadata[0].startswith(":")
@@ -270,6 +272,38 @@ def valid_target_pr(
     )
 
 
+def download_job_log_archive(url: str, token: str) -> bytes:
+    """Download job logs without forwarding the API token to a signed redirect URL."""
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(request, timeout=60) as response:
+            return response.read()
+    except urllib.error.HTTPError as response:
+        if response.code not in {301, 302, 303, 307, 308}:
+            raise
+        location = response.headers.get("Location")
+        if not location:
+            raise ValueError("GitHub job-log redirect did not include a location.")
+        redirected = urllib.parse.urljoin(url, location)
+        parsed = urllib.parse.urlsplit(redirected)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("GitHub job-log redirect must use HTTPS without URL credentials.")
+        # The signed download URL is a separate capability. Never forward GH_TOKEN.
+        with urllib.request.urlopen(redirected, timeout=60) as response:
+            return response.read()
+
+
 def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str]:
     jobs_url = f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"
     jobs = github(jobs_url, token).get("jobs", [])
@@ -277,15 +311,10 @@ def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str
     chunks = []
     for job in failed:
         try:
-            request = urllib.request.Request(
+            archive = download_job_log_archive(
                 f"{API}/repos/{repo}/actions/jobs/{job['id']}/logs",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/vnd.github+json",
-                },
+                token,
             )
-            with urllib.request.urlopen(request, timeout=60) as response:
-                archive = response.read()
             import io
             import zipfile
 
