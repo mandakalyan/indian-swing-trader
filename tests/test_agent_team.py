@@ -243,6 +243,7 @@ def test_review_agent_rejects_file_mode_changes(monkeypatch):
     assert finding.status == "blocked"
     assert "mode" in finding.detail.lower()
     assert paths == []
+
 REPOSITORY = "mandakalyan/indian-swing-trader"
 TARGET_SHA = "a" * 40
 
