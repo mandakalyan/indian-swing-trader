@@ -6,7 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-import scripts.agent_team as agent_team
+from scripts.agent_team import (
+    RepairAgent,
+    ReviewAgent,
+    SecurityAgent,
+    TriageAgent,
+    main,
+    redact_logs,
+    safe_path,
+    valid_target_pr,
+)
 
 
 @pytest.mark.parametrize(
@@ -239,7 +248,7 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
     monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
     monkeypatch.setenv("GH_TOKEN", "test-token")
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
-    monkeypatch.setattr(agent_team.time, "sleep", lambda *_: None)
+    monkeypatch.setattr("scripts.agent_team.time.sleep", lambda *_: None)
 
     api_calls = []
     repair_pr_payloads = []
@@ -285,14 +294,14 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
             returncode = 1
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(agent_team, "github", fake_github)
-    monkeypatch.setattr(agent_team, "collect_failure", lambda *args: (
+    monkeypatch.setattr("scripts.agent_team.github", fake_github)
+    monkeypatch.setattr("scripts.agent_team.collect_failure", lambda *args: (
         [{"name": "Lint and formatting", "conclusion": "failure"}],
         "ruff check failed",
     ))
-    monkeypatch.setattr(agent_team, "run", fake_run)
+    monkeypatch.setattr("scripts.agent_team.run", fake_run)
 
-    assert agent_team.main() == 0
+    assert main() == 0
     assert len(repair_pr_payloads) == 1
     assert repair_pr_payloads[0]["draft"] is True
     assert repair_pr_payloads[0]["base"] == "feature/ci-test"
@@ -316,7 +325,7 @@ def test_main_aborts_when_pr_head_changes_after_ci(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
     monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
     monkeypatch.setenv("GH_TOKEN", "test-token")
-    monkeypatch.setattr(agent_team.time, "sleep", lambda *_: None)
+    monkeypatch.setattr("scripts.agent_team.time.sleep", lambda *_: None)
 
     api_calls = []
 
@@ -339,9 +348,9 @@ def test_main_aborts_when_pr_head_changes_after_ci(monkeypatch, tmp_path):
         raise AssertionError(f"Unexpected GitHub API call: {method} {url}")
 
     commands = []
-    monkeypatch.setattr(agent_team, "github", fake_github)
-    monkeypatch.setattr(agent_team, "run", lambda args, **kwargs: commands.append(args))
+    monkeypatch.setattr("scripts.agent_team.github", fake_github)
+    monkeypatch.setattr("scripts.agent_team.run", lambda args, **kwargs: commands.append(args))
 
-    assert agent_team.main() == 0
+    assert main() == 0
     assert commands == []
     assert not any(url.endswith("/pulls") and method == "POST" for url, method in api_calls)
