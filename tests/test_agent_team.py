@@ -13,10 +13,13 @@ from scripts.agent_team import (
     TriageAgent,
     collect_failure,
     main,
+    open_draft_pr,
     redact_logs,
-    run as run_command,
     safe_path,
     valid_target_pr,
+)
+from scripts.agent_team import (
+    run as run_command,
 )
 
 
@@ -192,8 +195,16 @@ def test_review_agent_rejects_binary_diff(monkeypatch):
         nonlocal calls
         calls += 1
         if calls == 1:
-            return Result("M\tsrc/indian_swing_trader/module.py\n")
+            return Result("M\\tsrc/indian_swing_trader/module.py\\n")
         if calls == 2:
+            return Result(
+                ":100644 100644 "
+                + "0" * 40
+                + " "
+                + "1" * 40
+                + " M\\tsrc/indian_swing_trader/module.py\\n"
+            )
+        if calls == 3:
             return Result("Binary files differ")
         return Result("")
 
@@ -203,6 +214,35 @@ def test_review_agent_rejects_binary_diff(monkeypatch):
     assert "Binary" in finding.detail
 
 
+def test_review_agent_rejects_file_mode_changes(monkeypatch):
+    class Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    calls = 0
+
+    def fake_run(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return Result("M\\tsrc/indian_swing_trader/module.py\\n")
+        if calls == 2:
+            return Result(
+                ":100644 100755 "
+                + "0" * 40
+                + " "
+                + "1" * 40
+                + " M\\tsrc/indian_swing_trader/module.py\\n"
+            )
+        return Result("")
+
+    monkeypatch.setattr("scripts.agent_team.run", fake_run)
+    finding, paths = ReviewAgent().run()
+    assert finding.status == "blocked"
+    assert "mode" in finding.detail.lower()
+    assert paths == []
 REPOSITORY = "mandakalyan/indian-swing-trader"
 TARGET_SHA = "a" * 40
 
@@ -328,6 +368,14 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monke
         returncode = 0
         if args == ["git", "diff", "--name-status", "--no-renames", "HEAD"]:
             stdout = "M\tsrc/indian_swing_trader/core.py\n"
+        elif args == ["git", "diff", "--raw", "--no-abbrev", "--no-renames", "HEAD"]:
+            stdout = (
+                ":100644 100644 "
+                + "0" * 40
+                + " "
+                + "1" * 40
+                + " M\\tsrc/indian_swing_trader/core.py\\n"
+            )
         elif args == ["git", "diff", "--no-ext-diff", "--no-color", "HEAD"]:
             stdout = (
                 "diff --git a/src/indian_swing_trader/core.py "
@@ -360,7 +408,49 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monke
     assert not any(command and command[0] in {"pytest", "python", "pip"} for command in commands)
     assert summary_path.exists()
     assert "draft_pr_created" in summary_path.read_text(encoding="utf-8")
-    assert len([call for call in api_calls if call[0].endswith("/pulls/7")]) == 2
+    assert len([call for call in api_calls if call[0].endswith("/pulls/7")]) == 3
+
+
+def test_open_draft_pr_revalidates_source_head_after_push(monkeypatch):
+    api_calls = []
+
+    def fake_github(url, token, method="GET", payload=None):
+        api_calls.append((url, method))
+        assert method == "GET"
+        return make_target_pr(head_sha="b" * 40)
+
+    commands = []
+
+    def fake_run(args, *, check=False, env=None):
+        commands.append(args)
+        returncode = 1 if args == ["git", "diff", "--cached", "--quiet"] else 0
+        return SimpleNamespace(returncode=returncode, stdout="", stderr="")
+
+    monkeypatch.setattr("scripts.agent_team.github", fake_github)
+    monkeypatch.setattr("scripts.agent_team.run", fake_run)
+
+    url = open_draft_pr(
+        REPOSITORY,
+        7,
+        "feature/ci-test",
+        TARGET_SHA,
+        123,
+        "test-token",
+        ["src/indian_swing_trader/core.py"],
+        [],
+    )
+
+    assert url == ""
+    assert api_calls == [
+        (f"https://api.github.com/repos/{REPOSITORY}/pulls/7", "GET")
+    ]
+    assert [
+        "git",
+        "push",
+        "--set-upstream",
+        "origin",
+        "agent-team/repair-pr-7-run-123",
+    ] in commands
 
 
 def test_main_does_not_treat_cancelled_ci_as_success_or_repair(monkeypatch, tmp_path):
