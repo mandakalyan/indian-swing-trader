@@ -1,8 +1,12 @@
 """Tests for the zero-cost CI repair agent team."""
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+import scripts.agent_team as agent_team
 
 from scripts.agent_team import (
     RepairAgent,
@@ -230,3 +234,124 @@ def test_privileged_workflow_uses_trusted_pull_request_target_boundary():
     assert workflow.count("uses: actions/checkout@") == 1
     assert "ref: ${{ github.event.pull_request.head.sha }}" not in workflow
     assert "secrets." not in workflow
+
+
+def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
+    monkeypatch, tmp_path
+):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"pull_request": make_target_pr()}),
+        encoding="utf-8",
+    )
+    summary_path = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    monkeypatch.setattr(agent_team.time, "sleep", lambda *_: None)
+
+    api_calls = []
+    repair_pr_payloads = []
+
+    def fake_github(url, token, method="GET", payload=None):
+        api_calls.append((url, method))
+        if "/actions/runs?" in url:
+            return {
+                "workflow_runs": [
+                    {
+                        "name": "CI",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "id": 123,
+                        "pull_requests": [{"number": 7}],
+                    }
+                ]
+            }
+        if url.endswith("/pulls/7") and method == "GET":
+            return make_target_pr()
+        if url.endswith("/pulls") and method == "POST":
+            repair_pr_payloads.append(payload)
+            return {"html_url": "https://github.com/mandakalyan/indian-swing-trader/pull/99"}
+        raise AssertionError(f"Unexpected GitHub API call: {method} {url}")
+
+    commands = []
+
+    def fake_run(args, *, check=False, env=None):
+        commands.append(args)
+        stdout = ""
+        returncode = 0
+        if args == ["git", "diff", "--name-status", "--no-renames", "HEAD"]:
+            stdout = "M\\tsrc/indian_swing_trader/core.py\\n"
+        elif args == ["git", "diff", "--no-ext-diff", "--no-color", "HEAD"]:
+            stdout = (
+                "diff --git a/src/indian_swing_trader/core.py "
+                "b/src/indian_swing_trader/core.py\\n"
+                "--- a/src/indian_swing_trader/core.py\\n"
+                "+++ b/src/indian_swing_trader/core.py\\n"
+                "@@ -1 +1 @@\\n-value = 0\\n+value = 1\\n"
+            )
+        elif args == ["git", "diff", "--cached", "--quiet"]:
+            returncode = 1
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(agent_team, "github", fake_github)
+    monkeypatch.setattr(agent_team, "collect_failure", lambda *args: (
+        [{"name": "Lint and formatting", "conclusion": "failure"}],
+        "ruff check failed",
+    ))
+    monkeypatch.setattr(agent_team, "run", fake_run)
+
+    assert agent_team.main() == 0
+    assert len(repair_pr_payloads) == 1
+    assert repair_pr_payloads[0]["draft"] is True
+    assert repair_pr_payloads[0]["base"] == "feature/ci-test"
+    assert any(command[:3] == ["git", "fetch", "--no-tags"] for command in commands)
+    assert ["ruff", "check", "--fix", "src"] in commands
+    assert ["ruff", "format", "src"] in commands
+    assert not any(
+        command and command[0] in {"pytest", "python", "pip"} for command in commands
+    )
+    assert summary_path.exists()
+    assert "draft_pr_created" in summary_path.read_text(encoding="utf-8")
+    assert len([call for call in api_calls if call[0].endswith("/pulls/7")]) == 2
+
+
+def test_main_aborts_when_pr_head_changes_after_ci(monkeypatch, tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"pull_request": make_target_pr()}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setattr(agent_team.time, "sleep", lambda *_: None)
+
+    api_calls = []
+
+    def fake_github(url, token, method="GET", payload=None):
+        api_calls.append((url, method))
+        if "/actions/runs?" in url:
+            return {
+                "workflow_runs": [
+                    {
+                        "name": "CI",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "id": 123,
+                        "pull_requests": [{"number": 7}],
+                    }
+                ]
+            }
+        if url.endswith("/pulls/7"):
+            return make_target_pr(head_sha="b" * 40)
+        raise AssertionError(f"Unexpected GitHub API call: {method} {url}")
+
+    commands = []
+    monkeypatch.setattr(agent_team, "github", fake_github)
+    monkeypatch.setattr(agent_team, "run", lambda args, **kwargs: commands.append(args))
+
+    assert agent_team.main() == 0
+    assert commands == []
+    assert not any(url.endswith("/pulls") and method == "POST" for url, method in api_calls)
