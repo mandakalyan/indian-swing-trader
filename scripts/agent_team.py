@@ -24,7 +24,11 @@ MAX_FILES = 5
 
 
 def run(args: list[str], *, check: bool = False, env: dict[str, str] | None = None):
-    result = subprocess.run(args, text=True, capture_output=True, env=env, timeout=120)
+    # Never expose the privileged token to subprocesses that parse candidate data.
+    child_env = dict(os.environ if env is None else env)
+    child_env.pop("GH_TOKEN", None)
+    child_env.pop("GITHUB_TOKEN", None)
+    result = subprocess.run(args, text=True, capture_output=True, env=child_env, timeout=120)
     if check and result.returncode:
         raise RuntimeError(f"{args[0]} failed: {(result.stderr or result.stdout)[-2000:]}")
     return result
@@ -273,8 +277,9 @@ def collect_failure(repo: str, run_id: int, token: str) -> tuple[list[dict], str
                     for name in bundle.namelist()
                     if name.endswith(".txt")
                 )
-        except Exception as exc:  # noqa: BLE001
-            raw = f"Log retrieval failed ({type(exc).__name__})."
+        except Exception:  # noqa: BLE001
+            # Fail closed: a CI failure without readable diagnostics is not repairable.
+            return failed, ""
         safe = redact_logs(raw)
         if not safe:
             return failed, ""
@@ -384,10 +389,13 @@ def main() -> int:
             and any(p.get("number") == number for p in item.get("pull_requests", []))
         ]
         if candidates and candidates[0].get("status") == "completed":
-            if candidates[0].get("conclusion") == "failure":
+            conclusion = candidates[0].get("conclusion")
+            if conclusion == "failure":
                 failed_run = candidates[0]
-            else:
+            elif conclusion == "success":
                 print("Read-only CI passed; no repair required.")
+            else:
+                print(f"Read-only CI completed with conclusion {conclusion!r}; no repair proposed.")
             break
         time.sleep(15)
     if not failed_run:
