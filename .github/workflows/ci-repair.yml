@@ -14,11 +14,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-repair-${{ github.event.pull_request.number || github.event.inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   propose-repair:
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       actions: read
       contents: write
