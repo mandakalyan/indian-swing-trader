@@ -242,6 +242,7 @@ def valid_target_pr(
         and head_repo.get("full_name") == repo
         and bool(re.fullmatch(r"[0-9a-f]{40}", current_sha))
         and bool(current_branch)
+        and current_branch not in {"main", "development"}
         and (sha is None or current_sha == sha)
         and (branch is None or current_branch == branch)
     )
@@ -372,7 +373,7 @@ def main() -> int:
     branch = pr["head"]["ref"]
 
     failed_run = None
-    for _ in range(40):
+    for _ in range(80):
         runs = github(
             f"{API}/repos/{repo}/actions/runs?head_sha={sha}&event=pull_request&per_page=30", token
         ).get("workflow_runs", [])
