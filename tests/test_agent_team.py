@@ -282,14 +282,14 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
         stdout = ""
         returncode = 0
         if args == ["git", "diff", "--name-status", "--no-renames", "HEAD"]:
-            stdout = "M\\tsrc/indian_swing_trader/core.py\\n"
+            stdout = "M\tsrc/indian_swing_trader/core.py\n"
         elif args == ["git", "diff", "--no-ext-diff", "--no-color", "HEAD"]:
             stdout = (
                 "diff --git a/src/indian_swing_trader/core.py "
-                "b/src/indian_swing_trader/core.py\\n"
-                "--- a/src/indian_swing_trader/core.py\\n"
-                "+++ b/src/indian_swing_trader/core.py\\n"
-                "@@ -1 +1 @@\\n-value = 0\\n+value = 1\\n"
+                "b/src/indian_swing_trader/core.py\n"
+                "--- a/src/indian_swing_trader/core.py\n"
+                "+++ b/src/indian_swing_trader/core.py\n"
+                "@@ -1 +1 @@\n-value = 0\n+value = 1\n"
             )
         elif args == ["git", "diff", "--cached", "--quiet"]:
             returncode = 1
