@@ -174,6 +174,24 @@ class ReviewAgent:
                 Finding("review", "blocked", "Only modifications to existing files are permitted."),
                 [item[-1] for item in entries if item],
             )
+
+        # A status of M also covers executable-bit and regular-file/symlink
+        # transitions. Reject any Git mode change before accepting the patch.
+        modes = run(["git", "diff", "--raw", "--no-abbrev", "--no-renames", "HEAD"])
+        if modes.returncode:
+            return Finding("review", "blocked", "Could not inspect file modes."), []
+        for line in modes.stdout.splitlines():
+            metadata = line.split("\t", 1)[0].split()
+            if (
+                len(metadata) < 2
+                or not metadata[0].startswith(":")
+                or metadata[0][1:] != metadata[1]
+            ):
+                return (
+                    Finding("review", "blocked", "File type or mode changes are not permitted."),
+                    [],
+                )
+
         names = [item[1] for item in entries]
         if len(names) > MAX_FILES or any(not safe_path(name) for name in names):
             return (
@@ -304,6 +322,7 @@ def open_draft_pr(
     repo: str,
     pr_number: int,
     base_branch: str,
+    expected_sha: str,
     run_id: int,
     token: str,
     paths: list[str],
@@ -334,6 +353,17 @@ def open_draft_pr(
             "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
         },
     )
+    # Revalidate after the push and immediately before opening the proposal.
+    # If the source PR moved during repair preparation, leave the branch unlinked.
+    latest_pr = github(f"{API}/repos/{repo}/pulls/{pr_number}", token)
+    if not valid_target_pr(
+        latest_pr,
+        repo,
+        number=pr_number,
+        sha=expected_sha,
+        branch=base_branch,
+    ):
+        return ""
     diagnosis = "\n".join(f"- **{f.role}:** {f.detail}" for f in findings)
     result = github(
         f"{API}/repos/{repo}/pulls",
@@ -450,12 +480,12 @@ def main() -> int:
         )
         write_summary(findings)
         return 0
-    url = open_draft_pr(repo, number, branch, int(failed_run["id"]), token, paths, findings)
+    url = open_draft_pr(repo, number, branch, sha, int(failed_run["id"]), token, paths, findings)
     findings.append(
         Finding(
             "orchestrator",
-            "draft_pr_created" if url else "no_change",
-            url or "No changes remained to propose.",
+            "draft_pr_created" if url else "not_created",
+            url or "No draft PR created; no changes remained or the source PR changed during final revalidation.",
         )
     )
     write_summary(findings)
