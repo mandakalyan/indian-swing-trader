@@ -8,16 +8,6 @@ import pytest
 
 import scripts.agent_team as agent_team
 
-from scripts.agent_team import (
-    RepairAgent,
-    ReviewAgent,
-    SecurityAgent,
-    TriageAgent,
-    redact_logs,
-    safe_path,
-    valid_target_pr,
-)
-
 
 @pytest.mark.parametrize(
     "path",
