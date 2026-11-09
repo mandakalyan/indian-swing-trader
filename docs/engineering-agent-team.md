@@ -17,6 +17,18 @@ specialised Python roles coordinated by a small orchestrator:
 6. **Orchestrator** waits for the ordinary `CI` workflow to finish, coordinates
    the roles, and opens a draft PR only when a bounded repair exists.
 
+## Activation and validation
+
+GitHub evaluates a `pull_request_target` workflow from the PR's base branch.
+Because this workflow is introduced by PR #7 targeting `development`, it
+cannot run on PR #7 itself; it becomes active for subsequent PRs after it lands
+in `development`. GitHub exposes `workflow_dispatch` only when the workflow
+file is present on the repository's default branch (`main`). Until those
+conditions are met, the privileged orchestration can be validated with the
+static boundary checks and mocked end-to-end tests, but not with a live
+write-capable Actions run. Do not treat the mocked test as proof of live token
+permissions or runner integration.
+
 ## Model and cost strategy
 
 **No LLM is called in release 1.** GitHub Actions performs deterministic
@@ -36,10 +48,14 @@ to this workflow.
 
 ## Security boundaries
 
-- The repair workflow is manually dispatched from the trusted `development`
-  branch with a pull-request number; it does not run automatically for PR events.
-- The job fetches PR metadata from GitHub and accepts only same-repository PRs
-  targeting `development`; fork and other-base PRs are skipped.
+- The repair workflow is triggered by `pull_request_target` for opened,
+  synchronized, or reopened PRs targeting `development`; a manual
+  `workflow_dispatch` path is also provided.
+- The privileged job checks out only the trusted `development` branch with
+  checkout credentials disabled. It never checks out the candidate PR branch.
+- The job accepts only open, same-repository PRs targeting `development`,
+  rejects protected head branches, and revalidates the PR head SHA before
+  creating a repair proposal.
 - The candidate commit is fetched as Git data. Candidate code is not run.
 - Ruff is used as a parser/formatter; pytest, build hooks, package imports and
   candidate scripts are not executed in the privileged job.
