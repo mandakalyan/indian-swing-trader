@@ -178,7 +178,7 @@ class ReviewAgent:
             )
         if any(not name.startswith("src/") or not name.endswith(".py") for name in names):
             return (
-                Finding("review", "blocked", "Deterministic Ruff repairs may modify only Python files under src/."),
+                Finding(\n                    "review",\n                    "blocked",\n                    "Deterministic Ruff repairs may modify only Python files under src/.",\n                ),
                 names,
             )
 
