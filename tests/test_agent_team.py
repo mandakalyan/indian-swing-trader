@@ -235,9 +235,7 @@ def test_privileged_workflow_uses_trusted_pull_request_target_boundary():
     assert "secrets." not in workflow
 
 
-def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
-    monkeypatch, tmp_path
-):
+def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monkeypatch, tmp_path):
     event_path = tmp_path / "event.json"
     event_path.write_text(
         json.dumps({"pull_request": make_target_pr()}),
@@ -295,10 +293,13 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
 
     monkeypatch.setattr("scripts.agent_team.github", fake_github)
-    monkeypatch.setattr("scripts.agent_team.collect_failure", lambda *args: (
-        [{"name": "Lint and formatting", "conclusion": "failure"}],
-        "ruff check failed",
-    ))
+    monkeypatch.setattr(
+        "scripts.agent_team.collect_failure",
+        lambda *args: (
+            [{"name": "Lint and formatting", "conclusion": "failure"}],
+            "ruff check failed",
+        ),
+    )
     monkeypatch.setattr("scripts.agent_team.run", fake_run)
 
     assert main() == 0
@@ -308,9 +309,7 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(
     assert any(command[:3] == ["git", "fetch", "--no-tags"] for command in commands)
     assert ["ruff", "check", "--fix", "src"] in commands
     assert ["ruff", "format", "src"] in commands
-    assert not any(
-        command and command[0] in {"pytest", "python", "pip"} for command in commands
-    )
+    assert not any(command and command[0] in {"pytest", "python", "pip"} for command in commands)
     assert summary_path.exists()
     assert "draft_pr_created" in summary_path.read_text(encoding="utf-8")
     assert len([call for call in api_calls if call[0].endswith("/pulls/7")]) == 2
