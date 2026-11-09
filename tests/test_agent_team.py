@@ -11,8 +11,10 @@ from scripts.agent_team import (
     ReviewAgent,
     SecurityAgent,
     TriageAgent,
+    collect_failure,
     main,
     redact_logs,
+    run as run_command,
     safe_path,
     valid_target_pr,
 )
@@ -62,6 +64,50 @@ def test_redact_logs_masks_api_key_assignment():
     cleaned = redact_logs("api_key=unusuallylongsecretvalue")
     assert "unusuallylongsecretvalue" not in cleaned
     assert "[REDACTED]" in cleaned
+
+
+def test_run_does_not_forward_github_tokens_to_subprocesses(monkeypatch):
+    captured = {}
+
+    def fake_subprocess_run(args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("GH_TOKEN", "privileged-token")
+    monkeypatch.setenv("GITHUB_TOKEN", "another-privileged-token")
+    monkeypatch.setattr("scripts.agent_team.subprocess.run", fake_subprocess_run)
+
+    run_command(
+        ["ruff", "check", "src"],
+        env={
+            "PATH": "/usr/bin",
+            "GH_TOKEN": "privileged-token",
+            "GITHUB_TOKEN": "another-privileged-token",
+            "SAFE_SETTING": "preserved",
+        },
+    )
+
+    assert "GH_TOKEN" not in captured["env"]
+    assert "GITHUB_TOKEN" not in captured["env"]
+    assert captured["env"]["SAFE_SETTING"] == "preserved"
+
+
+def test_collect_failure_fails_closed_when_log_download_fails(monkeypatch):
+    monkeypatch.setattr(
+        "scripts.agent_team.github",
+        lambda *args, **kwargs: {
+            "jobs": [{"id": 123, "name": "Lint and formatting", "conclusion": "failure"}]
+        },
+    )
+
+    def deny_log_download(*args, **kwargs):
+        raise OSError("log access denied")
+
+    monkeypatch.setattr("scripts.agent_team.urllib.request.urlopen", deny_log_download)
+    failed, logs = collect_failure(REPOSITORY, 456, "test-token")
+
+    assert len(failed) == 1
+    assert logs == ""
 
 
 def test_triage_agent_classifies_lint_failure():
@@ -315,6 +361,40 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monke
     assert summary_path.exists()
     assert "draft_pr_created" in summary_path.read_text(encoding="utf-8")
     assert len([call for call in api_calls if call[0].endswith("/pulls/7")]) == 2
+
+
+def test_main_does_not_treat_cancelled_ci_as_success_or_repair(monkeypatch, tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"pull_request": make_target_pr()}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setattr("scripts.agent_team.time.sleep", lambda *_: None)
+
+    def fake_github(url, token, method="GET", payload=None):
+        assert "/actions/runs?" in url
+        return {
+            "workflow_runs": [
+                {
+                    "name": "CI",
+                    "status": "completed",
+                    "conclusion": "cancelled",
+                    "id": 123,
+                    "pull_requests": [{"number": 7}],
+                }
+            ]
+        }
+
+    monkeypatch.setattr("scripts.agent_team.github", fake_github)
+    monkeypatch.setattr(
+        "scripts.agent_team.collect_failure",
+        lambda *args: pytest.fail("Cancelled CI must not trigger a repair."),
+    )
+
+    assert main() == 0
 
 
 def test_main_aborts_when_pr_head_changes_after_ci(monkeypatch, tmp_path):
