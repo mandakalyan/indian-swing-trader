@@ -14,6 +14,7 @@ from scripts.agent_team import (
     TriageAgent,
     collect_failure,
     download_job_log_archive,
+    github,
     main,
     open_draft_pr,
     redact_logs,
@@ -140,6 +141,38 @@ def test_download_job_logs_does_not_forward_token_to_redirect(monkeypatch):
 
     assert archive == b"archive"
     assert downloaded == [target]
+
+
+def test_github_api_rejects_redirect_without_forwarding_token(monkeypatch):
+    class FakeOpener:
+        def open(self, request, timeout):
+            assert request.get_header("Authorization") == "Bearer test-token"
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "https://attacker.example.test/collect"},
+                None,
+            )
+
+    monkeypatch.setattr(
+        "scripts.agent_team.urllib.request.build_opener",
+        lambda *_args: FakeOpener(),
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to forward credentials"):
+        github("https://api.github.com/repos/example/repo/pulls/7", "test-token")
+
+
+def test_redact_logs_masks_fine_grained_github_tokens_and_token_assignments():
+    fine_grained = "github_pat_" + "A1" * 24
+    generic_token = "GH_TOKEN=" + "secretvalue123456789"
+    cleaned = redact_logs(f"{fine_grained}\n{generic_token}")
+
+    assert fine_grained not in cleaned
+    assert "secretvalue123456789" not in cleaned
+    assert "[REDACTED GITHUB TOKEN]" in cleaned
+    assert "GH_TOKEN=[REDACTED]" in cleaned
 
 
 def test_collect_failure_fails_closed_when_log_download_fails(monkeypatch):
@@ -362,6 +395,10 @@ def test_privileged_workflow_uses_trusted_pull_request_target_boundary():
     assert "pull_request_target:" in workflow
     assert "types: [opened, synchronize, reopened]" in workflow
     assert "branches: [development]" in workflow
+    assert "github.event_name == 'pull_request_target'" in workflow
+    assert "github.event.pull_request.base.ref == 'development'" in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.ref == 'refs/heads/development'" in workflow
     assert "ref: development" in workflow
     assert "persist-credentials: false" in workflow
     assert "actions: read" in workflow

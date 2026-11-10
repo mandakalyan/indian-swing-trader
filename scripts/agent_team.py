@@ -49,8 +49,21 @@ def github(url: str, token: str, method: str = "GET", payload=None):
             "Content-Type": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=60) as response:
-        raw = response.read()
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(req, timeout=60) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as response:
+        if response.code in {301, 302, 303, 307, 308}:
+            response.close()
+            raise RuntimeError(
+                "GitHub API returned an unexpected redirect; refusing to forward credentials."
+            ) from None
+        raise
     return json.loads(raw) if raw else {}
 
 
@@ -66,11 +79,12 @@ def redact_logs(text: str) -> str:
         (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+", r"\1[REDACTED]"),
         (r"(?i)(authorization\s*[:=]\s*)[^\r\n]+", r"\1[REDACTED]"),
         (
-            r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
-            r"password|passwd|secret)\s*[:=]\s*)[^\s,;]+",
+            r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|github[_-]?token|"
+            r"gh[_-]?token|token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*)[^\s,;]+",
             r"\1[REDACTED]",
         ),
         (r"(?i)(https?://)[^/@\s:]+:[^/@\s]+@", r"\1[REDACTED]@"),
+        (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", "[REDACTED GITHUB TOKEN]"),
         (r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", "[REDACTED GITHUB TOKEN]"),
         (r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED AWS KEY]"),
         (r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b", "[REDACTED SLACK TOKEN]"),
@@ -85,7 +99,9 @@ def redact_logs(text: str) -> str:
     cleaned = "\n".join(lines)
     residual = re.search(
         r"(?i)(-----BEGIN .*PRIVATE KEY-----|bearer\s+[A-Za-z0-9._~+/=-]{16,}|"
-        r"(?:password|client_secret|api_key)\s*[:=]\s*(?!\[REDACTED\])[^\s]{8,})",
+        r"github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+        r"(?:password|client_secret|api_key|github_token|gh_token|token)\s*[:=]\s*"
+        r"(?!\[REDACTED\])[^\s]{8,})",
         cleaned,
     )
     return "" if residual else cleaned[:20_000]

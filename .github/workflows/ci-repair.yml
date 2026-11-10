@@ -20,7 +20,11 @@ concurrency:
 
 jobs:
   propose-repair:
-    if: github.ref == 'refs/heads/development'
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.base.ref == 'development') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/development')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
