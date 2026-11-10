@@ -49,6 +49,7 @@ def github(url: str, token: str, method: str = "GET", payload=None):
             "Content-Type": "application/json",
         },
     )
+
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
@@ -369,7 +370,7 @@ def write_summary(findings: list[Finding]) -> None:
 def open_draft_pr(
     repo: str,
     pr_number: int,
-    base_branch: str,
+    expected_head_branch: str,
     expected_sha: str,
     run_id: int,
     token: str,
@@ -409,7 +410,7 @@ def open_draft_pr(
         repo,
         number=pr_number,
         sha=expected_sha,
-        branch=base_branch,
+        branch=expected_head_branch,
     ):
         return ""
     diagnosis = "\n".join(f"- **{f.role}:** {f.detail}" for f in findings)
@@ -420,7 +421,7 @@ def open_draft_pr(
         {
             "title": f"Agent-team repair proposal for PR #{pr_number}",
             "head": branch,
-            "base": base_branch,
+            "base": "development",
             "draft": True,
             "maintainer_can_modify": True,
             "body": (
