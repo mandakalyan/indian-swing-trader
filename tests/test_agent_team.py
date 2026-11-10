@@ -487,7 +487,7 @@ def test_main_runs_controlled_repair_flow_without_executing_candidate_code(monke
     assert main() == 0
     assert len(repair_pr_payloads) == 1
     assert repair_pr_payloads[0]["draft"] is True
-    assert repair_pr_payloads[0]["base"] == "feature/ci-test"
+    assert repair_pr_payloads[0]["base"] == "development"
     assert any(command[:3] == ["git", "fetch", "--no-tags"] for command in commands)
     assert ["ruff", "check", "--fix", "src"] in commands
     assert ["ruff", "format", "src"] in commands
